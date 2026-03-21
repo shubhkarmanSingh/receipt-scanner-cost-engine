@@ -1,0 +1,8 @@
+.env
+config/service_account.json
+config/gmail_credentials.json
+config/gmail_token.json
+__pycache__/
+*.pyc
+tests/test_output.json
+.venv/
