@@ -1,4 +1,6 @@
 .env
+.DS_Store
+*.shortcut
 config/service_account.json
 config/gmail_credentials.json
 config/gmail_token.json

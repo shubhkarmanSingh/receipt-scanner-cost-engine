@@ -88,7 +88,13 @@ def scan_receipt(request):
 
     try:
         # ── Parse request ──
-        request_json = request.get_json(silent=True) or {}
+        request_json = request.get_json(silent=True)
+        if not request_json:
+            # iOS Shortcuts sends body as raw data, not application/json
+            try:
+                request_json = json.loads(request.get_data(as_text=True))
+            except (json.JSONDecodeError, TypeError):
+                request_json = {}
         image_base64 = request_json.get("image_base64")
         image_url = request_json.get("image_url")
         media_type = request_json.get("media_type", "image/png")

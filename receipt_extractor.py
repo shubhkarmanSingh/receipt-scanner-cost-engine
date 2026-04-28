@@ -122,13 +122,27 @@ def extract_receipt(image_path: str = None, image_base64: str = None,
     # Parse the response
     response_text = message.content[0].text
 
-    # Clean up response — strip markdown code fences if present
+    # Clean up response — extract just the JSON object
+    # Strip markdown code fences if present
     if response_text.startswith("```"):
-        response_text = response_text.split("\n", 1)[1]  # Remove first line (e.g. "```json")
-    response_text = response_text.strip()  # Strip before checking endswith
+        response_text = response_text.split("\n", 1)[1]
+    response_text = response_text.strip()
     if response_text.endswith("```"):
         response_text = response_text.rsplit("```", 1)[0]
     response_text = response_text.strip()
+
+    # Extract the JSON object between first { and its matching }
+    start = response_text.find("{")
+    if start != -1:
+        depth = 0
+        for i, ch in enumerate(response_text[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    response_text = response_text[start:i + 1]
+                    break
 
     try:
         receipt_data = json.loads(response_text)

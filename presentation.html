@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SpringRoll House — Receipt Scanner</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
+<style>
+  :root {
+    --spring-brown: #8B6914;
+    --spring-orange: #D4872C;
+    --spring-green: #5B8C3E;
+    --spring-cream: #FFF8EC;
+    --spring-dark: #3D2B1F;
+  }
+  .reveal { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  .reveal .slides section { text-align: left; box-sizing: border-box; }
+  .reveal h1, .reveal h2, .reveal h3 { color: var(--spring-dark); font-weight: 700; margin-bottom: 10px; }
+  .reveal h1 { font-size: 2em; }
+  .reveal h2 { font-size: 1.4em; border-bottom: 3px solid var(--spring-orange); padding-bottom: 8px; display: inline-block; margin-bottom: 6px; }
+  .reveal h3 { font-size: 1.1em; color: var(--spring-brown); }
+  .reveal .center-slide { text-align: center; }
+  .reveal .center-slide h1, .reveal .center-slide h2, .reveal .center-slide p { text-align: center; }
+  .brand { color: var(--spring-orange); }
+  .green { color: var(--spring-green); }
+  .brown { color: var(--spring-brown); }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .stat-box { background: var(--spring-cream); border-radius: 10px; padding: 16px; text-align: center; border-left: 4px solid var(--spring-orange); }
+  .stat-box .number { font-size: 1.8em; font-weight: 800; color: var(--spring-orange); }
+  .stat-box .label { font-size: 0.65em; color: #666; margin-top: 2px; }
+  .pipeline-step { display: flex; align-items: center; gap: 14px; margin: 8px 0; padding: 10px 16px; background: var(--spring-cream); border-radius: 8px; font-size: 0.7em; }
+  .pipeline-step .icon { font-size: 1.6em; min-width: 40px; text-align: center; font-weight: 700; color: var(--spring-orange); }
+  .pipeline-step .desc strong { color: var(--spring-dark); }
+  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .feature-card { background: var(--spring-cream); border-radius: 8px; padding: 14px; font-size: 0.62em; }
+  .feature-card h4 { margin: 0 0 6px 0; color: var(--spring-brown); font-size: 1.1em; }
+  .feature-card ul { margin: 0; padding-left: 16px; }
+  .feature-card li { margin: 3px 0; }
+  .cost-table { width: 100%; border-collapse: collapse; font-size: 0.55em; margin: 8px 0; }
+  .cost-table th { background: var(--spring-brown); color: white; padding: 6px 8px; text-align: left; }
+  .cost-table td { padding: 5px 8px; border-bottom: 1px solid #eee; }
+  .cost-table tr:nth-child(even) { background: var(--spring-cream); }
+  .margin-good { color: var(--spring-green); font-weight: 700; }
+  .roadmap-item { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0; font-size: 0.68em; }
+  .roadmap-item .phase { min-width: 52px; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 0.85em; text-align: center; flex-shrink: 0; }
+  .phase-now { background: var(--spring-green); color: white; }
+  .phase-next { background: var(--spring-orange); color: white; }
+  .phase-later { background: #9E9E9E; color: white; }
+  .demo-box { background: linear-gradient(135deg, var(--spring-cream), #FFF0D4); border: 2px dashed var(--spring-orange); border-radius: 14px; padding: 24px; text-align: center; margin: 16px 0; }
+  .demo-box h3 { color: var(--spring-orange); margin-bottom: 6px; }
+  .tech-stack { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin: 14px 0; }
+  .tech-pill { background: var(--spring-cream); border: 1px solid #ddd; padding: 5px 14px; border-radius: 20px; font-size: 0.6em; font-weight: 600; color: var(--spring-dark); }
+  .reveal ul { font-size: 0.75em; }
+  .reveal li { margin: 4px 0; }
+  .section-intro { font-size: 0.75em; color: #666; margin-bottom: 12px; }
+  .img-container { text-align: center; margin: 10px 0; }
+  .img-container img { max-width: 88%; max-height: 480px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); object-fit: contain; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ============== SLIDE 1: TITLE ============== -->
+<section class="center-slide">
+  <h1><span class="brand">SpringRoll House</span></h1>
+  <h2 style="border: none; font-size: 1.1em; color: #666; display: block;">AI-Powered Receipt Scanner</h2>
+  <p style="font-size: 0.65em; color: #999; margin-top: 30px;">
+    Automated ingredient tracking, cost modeling, and margin analysis<br>
+    for spring roll production
+  </p>
+  <div class="tech-stack" style="margin-top: 40px;">
+    <span class="tech-pill">Claude Vision API</span>
+    <span class="tech-pill">Google Sheets</span>
+    <span class="tech-pill">iPhone Shortcut</span>
+    <span class="tech-pill">Python</span>
+  </div>
+</section>
+
+<!-- ============== SLIDE 2: THE PROBLEM ============== -->
+<section>
+  <h2>The Problem</h2>
+  <p class="section-intro">SpringRoll House produces 200,000 spring rolls per month across 9 product lines.</p>
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="number">20+</div>
+      <div class="label">Ingredients tracked</div>
+    </div>
+    <div class="stat-box">
+      <div class="number">9</div>
+      <div class="label">Product recipes</div>
+    </div>
+    <div class="stat-box">
+      <div class="number">100+</div>
+      <div class="label">Receipts per month</div>
+    </div>
+    <div class="stat-box">
+      <div class="number">$46K+</div>
+      <div class="label">Monthly operating costs</div>
+    </div>
+  </div>
+  <p style="font-size: 0.62em; color: #666; margin-top: 10px;">
+    Previously: Tony manually enters receipt data into spreadsheets after each trip to Restaurant Depot.
+    Ingredient prices change constantly. Cost-per-roll and margins are calculated by hand.
+    <strong>One missed price change can erode margins across thousands of rolls.</strong>
+  </p>
+</section>
+
+<!-- ============== SLIDE 3: THE SOLUTION ============== -->
+<section>
+  <h2>The Solution</h2>
+  <p class="section-intro">Scan a receipt with your phone. Everything else is automatic.</p>
+  <div class="pipeline-step">
+    <div class="icon">1</div>
+    <div class="desc"><strong>Snap</strong> — Take a photo of any receipt straight from the iPhone lock screen</div>
+  </div>
+  <div class="pipeline-step">
+    <div class="icon">2</div>
+    <div class="desc"><strong>Extract</strong> — Claude Vision AI reads every line item: ingredient, quantity, unit, price</div>
+  </div>
+  <div class="pipeline-step">
+    <div class="icon">3</div>
+    <div class="desc"><strong>Map</strong> — Each item is matched to a canonical ingredient (e.g., "GRD PORK 80/20 10LB CS" becomes "Pork")</div>
+  </div>
+  <div class="pipeline-step">
+    <div class="icon">4</div>
+    <div class="desc"><strong>Record</strong> — Data is written to the Purchases Database in Google Sheets</div>
+  </div>
+  <div class="pipeline-step">
+    <div class="icon">5</div>
+    <div class="desc"><strong>Calculate</strong> — Cost-per-roll and profit margins update instantly for all 9 products</div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 4: ARCHITECTURE ============== -->
+<section>
+  <h2>System Architecture</h2>
+  <div class="img-container">
+    <img src="pipeline_diagram.png" alt="Pipeline Architecture Diagram" style="max-width: 100%; max-height: 580px;">
+  </div>
+</section>
+
+<!-- ============== SLIDE 5: LIVE DEMO ============== -->
+<section class="center-slide">
+  <h2>Live Demo</h2>
+  <div class="demo-box">
+    <h3>iPhone Shortcut</h3>
+    <p style="font-size: 0.8em;">Tap "Scan Receipt" &rarr; Take photo &rarr; Done</p>
+    <p style="font-size: 0.6em; color: #999;">Receipt is processed in 5-10 seconds<br>Google Sheet updates in real time</p>
+  </div>
+  <p style="font-size: 0.6em; color: #999; text-align: center;">Open Google Sheets side-by-side to show live data entry</p>
+</section>
+
+<!-- ============== SLIDE 6: CLAUDE VISION EXTRACTION ============== -->
+<section>
+  <h2>AI Receipt Extraction</h2>
+  <p class="section-intro">Claude Vision reads any receipt format — printed, handwritten, thermal paper.</p>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <h4>What It Extracts</h4>
+      <ul>
+        <li>Merchant name and address</li>
+        <li>Date and time</li>
+        <li>Every line item with raw description</li>
+        <li>Quantity, unit, and unit price</li>
+        <li>Subtotal, tax, and total</li>
+        <li>Payment method</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4>Supported Formats</h4>
+      <ul>
+        <li>Restaurant Depot receipts</li>
+        <li>Costco Business Center</li>
+        <li>Local wholesaler invoices</li>
+        <li>Any photo (PNG, JPEG, WebP)</li>
+        <li>Auto-compressed for large images</li>
+        <li>~$0.01-0.03 per receipt</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size: 0.6em; color: #999; margin-top: 10px;">
+    Powered by Claude Sonnet — tuned with a structured prompt for food service supplier receipts.
+    Returns validated JSON with all fields normalized.
+  </p>
+</section>
+
+<!-- ============== SLIDE 7: INGREDIENT MAPPING ============== -->
+<section>
+  <h2>Ingredient Mapping</h2>
+  <p class="section-intro">Fuzzy pattern matching maps messy receipt text to canonical ingredient names.</p>
+  <table class="cost-table">
+    <tr><th>Receipt Text</th><th>Canonical Name</th><th>Category</th></tr>
+    <tr><td>GRD PORK 80/20 10LB CS</td><td>Pork</td><td>Protein</td></tr>
+    <tr><td>MINCED CHICKEN BREAST</td><td>Minced Chicken</td><td>Protein</td></tr>
+    <tr><td>RAW SHRIMP 16/20 IQF</td><td>Shrimp</td><td>Protein</td></tr>
+    <tr><td>RICE PAPER WRAPPER 12IN</td><td>Wrappers (Large 12in)</td><td>Wrapper</td></tr>
+    <tr><td>FRESH CARROTS WHOLE 25LB</td><td>Carrot</td><td>Produce</td></tr>
+    <tr><td>CHICKEN BOUILLON PWD 5LB</td><td>Chicken Flavor Bouillon</td><td>Seasoning</td></tr>
+    <tr><td>SOYBEAN OIL 35LB CONT</td><td>Soybean Oil</td><td>Supply</td></tr>
+  </table>
+  <div style="font-size: 0.6em; color: #666;">
+    <ul style="margin-top: 4px;">
+      <li><strong>20+ ingredients</strong> mapped across 6 categories (Protein, Produce, Seasoning, Wrapper, Starch, Supply)</li>
+      <li><strong>Word-boundary matching</strong> prevents false positives (e.g., "SALT" won't match "BASALT")</li>
+      <li><strong>Unmapped items</strong> flagged in a separate tab for review — never silently dropped</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============== SLIDE 8: GOOGLE SHEETS DATABASE ============== -->
+<section>
+  <h2>Google Sheets Database</h2>
+  <p class="section-intro">Five auto-managed tabs form the complete cost tracking system.</p>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <h4>Purchases</h4>
+      <ul>
+        <li>Every line item from every receipt</li>
+        <li>Date, supplier, ingredient, qty, unit price</li>
+        <li>Duplicate receipt detection</li>
+        <li>Auto-formatted headers</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4>Latest Prices</h4>
+      <ul>
+        <li>Most recent unit price per ingredient</li>
+        <li>Auto-calculated from Purchases tab</li>
+        <li>Drives recipe cost calculations</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4>Recipes & Margins</h4>
+      <ul>
+        <li>Full cost breakdown per roll</li>
+        <li>Ingredient + labor + overhead + insurance</li>
+        <li>Frozen wholesale and cooked retail margins</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4>Unmapped Items</h4>
+      <ul>
+        <li>Items not matching any ingredient</li>
+        <li>Logged for manual review</li>
+        <li>Easy to add new mappings</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 9: RECIPE COST MODEL ============== -->
+<section>
+  <h2>Recipe Cost Model</h2>
+  <p class="section-intro">9 products with full cost breakdown — updated automatically with every receipt scan.</p>
+  <table class="cost-table">
+    <tr>
+      <th>Product</th>
+      <th>Batch</th>
+      <th>Ingredient</th>
+      <th>Labor</th>
+      <th>Overhead</th>
+      <th>Total/Roll</th>
+      <th>Wholesale</th>
+      <th>Margin</th>
+    </tr>
+    <tr>
+      <td>Large Vegetable</td><td>1,200</td>
+      <td>$0.200</td><td>$0.179</td><td>$0.054</td>
+      <td><strong>$0.432</strong></td><td>$0.76</td>
+      <td class="margin-good">43.1%</td>
+    </tr>
+    <tr>
+      <td>Large Chicken</td><td>1,200</td>
+      <td>$0.244</td><td>$0.179</td><td>$0.054</td>
+      <td><strong>$0.476</strong></td><td>$0.76</td>
+      <td class="margin-good">37.4%</td>
+    </tr>
+    <tr>
+      <td>Large Pork</td><td>1,200</td>
+      <td>$0.244</td><td>$0.179</td><td>$0.054</td>
+      <td><strong>$0.476</strong></td><td>$0.76</td>
+      <td class="margin-good">37.4%</td>
+    </tr>
+    <tr>
+      <td>Taro</td><td>1,500</td>
+      <td>$0.130</td><td>$0.179</td><td>$0.054</td>
+      <td><strong>$0.362</strong></td><td>$0.72</td>
+      <td class="margin-good">49.7%</td>
+    </tr>
+    <tr>
+      <td>Shrimp</td><td>1,500</td>
+      <td>$0.160</td><td>$0.179</td><td>$0.054</td>
+      <td><strong>$0.392</strong></td><td>$0.88</td>
+      <td class="margin-good">55.4%</td>
+    </tr>
+    <tr>
+      <td>Pork & Shrimp</td><td>1,500</td>
+      <td>$0.177</td><td>$0.179</td><td>$0.054</td>
+      <td><strong>$0.409</strong></td><td>$0.80</td>
+      <td class="margin-good">48.9%</td>
+    </tr>
+  </table>
+  <p style="font-size: 0.5em; color: #888; margin-top: 6px;">
+    Overhead: labor ($35,700/mo) + rent ($3,450) + utilities ($1,100) + insurance ($3,550) + car ($1,100) + supplies ($979). Production: 200K rolls/mo, 9 employees.
+  </p>
+</section>
+
+<!-- ============== SLIDE 10: IPHONE SHORTCUT ============== -->
+<section>
+  <h2>iPhone Integration</h2>
+  <p class="section-intro">One-tap receipt scanning straight from the iPhone lock screen — no app install needed, works from lock screen.</p>
+  <div class="feature-grid" style="grid-template-columns: 1fr 1fr;">
+    <div class="feature-card">
+      <h4>How It Works</h4>
+      <div style="font-size: 0.9em; text-align: left; line-height: 2;">
+        1. Tap <strong>"Scan Receipt"</strong> from lock screen<br>
+        2. Camera opens &mdash; snap the receipt<br>
+        3. Photo sent to server automatically<br>
+        4. Claude Vision extracts all items<br>
+        5. Ingredients mapped &amp; written to Sheets<br>
+        6. Costs recalculated for all products<br>
+        7. Summary notification in 5-10 seconds
+      </div>
+    </div>
+    <div class="feature-card">
+      <h4>Sample Response</h4>
+      <pre style="background: #2D2D2D; color: #E8E8E8; padding: 10px; border-radius: 8px; font-size: 0.75em; line-height: 1.45; white-space: pre-wrap; margin: 4px 0;">Receipt Scanned!
+Merchant: RESTAURANT DEPOT #1247
+Date: 2026-03-04
+Items: 17 extracted, 17 mapped
+Subtotal: $820.95
+Rows written to Google Sheets: 17
+
+Updated Recipe Costs:
+  Lg Vegetable: $0.432/roll  43.1%
+  Lg Chicken:   $0.476/roll  37.4%
+  Lg Pork:      $0.476/roll  37.4%
+  Taro:         $0.362/roll  49.7%
+  Shrimp:       $0.392/roll  55.4%</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 11: COST & EFFICIENCY ============== -->
+<section>
+  <h2>Cost & Efficiency</h2>
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="number">$1-3</div>
+      <div class="label">Monthly API cost (100 receipts)</div>
+    </div>
+    <div class="stat-box">
+      <div class="number">10 sec</div>
+      <div class="label">Per receipt (vs. 5-10 min manual)</div>
+    </div>
+    <div class="stat-box">
+      <div class="number">0</div>
+      <div class="label">App installs required</div>
+    </div>
+    <div class="stat-box">
+      <div class="number">$0</div>
+      <div class="label">Google Sheets + Cloud Functions (free tier)</div>
+    </div>
+  </div>
+  <div style="font-size: 0.6em; color: #666; margin-top: 10px;">
+    <h4 style="color: var(--spring-brown); margin-bottom: 4px;">Stack</h4>
+    <ul style="margin-top: 0;">
+      <li><strong>Claude Vision API</strong> (Sonnet) &mdash; receipt image to structured JSON</li>
+      <li><strong>Python</strong> &mdash; extraction, mapping, and cost computation</li>
+      <li><strong>Google Sheets API</strong> &mdash; zero-cost database, familiar interface for the team</li>
+      <li><strong>Google Cloud Functions</strong> &mdash; serverless HTTP endpoint (free tier: 2M calls/month)</li>
+      <li><strong>iOS Shortcuts</strong> &mdash; native iPhone integration, no app development needed</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============== SLIDE 12: ROADMAP ============== -->
+<section>
+  <h2>Roadmap</h2>
+  <div class="roadmap-item">
+    <div class="phase phase-now">LIVE</div>
+    <div>
+      <strong>Receipt photo scanning via iPhone Shortcut</strong><br>
+      <span style="font-size: 0.85em; color: #888;">Claude Vision extraction, ingredient mapping, Sheets write, cost recalculation</span>
+    </div>
+  </div>
+  <div class="roadmap-item">
+    <div class="phase phase-now">LIVE</div>
+    <div>
+      <strong>Full recipe cost model with margin tracking</strong><br>
+      <span style="font-size: 0.85em; color: #888;">9 products, frozen wholesale + cooked retail margins, full overhead breakdown</span>
+    </div>
+  </div>
+  <div class="roadmap-item">
+    <div class="phase phase-next">NEXT</div>
+    <div>
+      <strong>Gmail watcher for emailed invoices</strong><br>
+      <span style="font-size: 0.85em; color: #888;">Auto-process supplier invoices sent via email — no manual scanning needed</span>
+    </div>
+  </div>
+  <div class="roadmap-item">
+    <div class="phase phase-next">NEXT</div>
+    <div>
+      <strong>Restaurant Depot CSV import</strong><br>
+      <span style="font-size: 0.85em; color: #888;">Direct import from the Restaurant Depot online portal for bulk order history</span>
+    </div>
+  </div>
+  <div class="roadmap-item">
+    <div class="phase phase-next">NEXT</div>
+    <div>
+      <strong>Price trend alerts</strong><br>
+      <span style="font-size: 0.85em; color: #888;">Notify when an ingredient price spikes above threshold — catch margin erosion early</span>
+    </div>
+  </div>
+  <div class="roadmap-item">
+    <div class="phase phase-later">LATER</div>
+    <div>
+      <strong>Web dashboard & QuickBooks integration</strong><br>
+      <span style="font-size: 0.85em; color: #888;">Visual cost trends, purchase forecasting, and accounting export</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============== SLIDE 13: CLOSING ============== -->
+<section class="center-slide">
+  <h1 style="margin-bottom: 20px;"><span class="brand">SpringRoll House</span></h1>
+  <h3 style="color: #666; font-weight: 400;">From receipt photo to updated margins in 10 seconds.</h3>
+  <div style="margin-top: 50px;">
+    <div class="stat-grid" style="max-width: 500px; margin: 0 auto;">
+      <div class="stat-box">
+        <div class="number" style="font-size: 1.6em;">200K</div>
+        <div class="label">rolls/month tracked</div>
+      </div>
+      <div class="stat-box">
+        <div class="number" style="font-size: 1.6em;">9</div>
+        <div class="label">products costed</div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size: 0.6em; color: #999; margin-top: 40px;">
+    Built with Claude Vision API &bull; Google Sheets &bull; iOS Shortcuts &bull; Python
+  </p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: true,
+    width: 1100,
+    height: 750,
+    margin: 0.06,
+    transition: 'slide',
+    controls: true,
+    progress: true,
+  });
+</script>
+</body>
+</html>

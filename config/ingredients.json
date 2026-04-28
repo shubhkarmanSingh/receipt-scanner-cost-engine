@@ -21,12 +21,12 @@
       "default_unit": "lb"
     },
     "Wrappers (Large 12in)": {
-      "patterns": ["RICE PAPER 12", "WRAPPER 12", "RICE PAPER WRAPPER 12", "SPRING ROLL WRAPPER 12"],
+      "patterns": ["RICE PAPER 12", "WRAPPER 12", "RICE PAPER WRAPPER 12", "SPRING ROLL WRAPPER 12", "RICE PAPER WRAPPER 12IN"],
       "category": "Wrapper",
       "default_unit": "sheet"
     },
     "Wrappers (Small 8in)": {
-      "patterns": ["RICE PAPER 8", "WRAPPER 8", "RICE PAPER WRAPPER 8", "SPRING ROLL WRAPPER 8"],
+      "patterns": ["RICE PAPER 8", "WRAPPER 8", "RICE PAPER WRAPPER 8", "SPRING ROLL WRAPPER 8", "RICE PAPER WRAPPER 8IN"],
       "category": "Wrapper",
       "default_unit": "sheet"
     },
@@ -81,7 +81,7 @@
       "default_unit": "lb"
     },
     "Mushroom Seasoning": {
-      "patterns": ["MUSHROOM SEASON", "MUSHROOM POWDER", "MUSHROOM PWD"],
+      "patterns": ["MUSHROOM SEASON", "MUSHROOM POWDER", "MUSHROOM PWD", "MUSHROOM SEASONING"],
       "category": "Seasoning",
       "default_unit": "lb"
     },

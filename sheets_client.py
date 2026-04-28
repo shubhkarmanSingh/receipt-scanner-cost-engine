@@ -108,23 +108,21 @@ def _format_purchases_sheet(spreadsheet_id: str, service):
                         "userEnteredFormat": {
                             "textFormat": {
                                 "bold": True,
-                                "fontSize": 11
+                                "fontSize": 11,
+                                "foregroundColorStyle": {
+                                    "rgbColor": {"red": 1, "green": 1, "blue": 1}
+                                }
                             },
                             "backgroundColor": {
                                 "red": 0.2,
                                 "green": 0.5,
                                 "blue": 0.8
                             },
-                            "textColor": {
-                                "red": 1,
-                                "green": 1,
-                                "blue": 1
-                            },
                             "horizontalAlignment": "CENTER",
                             "verticalAlignment": "MIDDLE"
                         }
                     },
-                    "fields": "userEnteredFormat(textFormat,backgroundColor,textColor,horizontalAlignment,verticalAlignment)"
+                    "fields": "userEnteredFormat(textFormat,backgroundColor,horizontalAlignment,verticalAlignment)"
                 }
             },
             # Auto-resize columns
@@ -197,23 +195,21 @@ def _format_unmapped_sheet(spreadsheet_id: str, service):
                         "userEnteredFormat": {
                             "textFormat": {
                                 "bold": True,
-                                "fontSize": 11
+                                "fontSize": 11,
+                                "foregroundColorStyle": {
+                                    "rgbColor": {"red": 1, "green": 1, "blue": 1}
+                                }
                             },
                             "backgroundColor": {
                                 "red": 0.8,
                                 "green": 0.4,
                                 "blue": 0.2
                             },
-                            "textColor": {
-                                "red": 1,
-                                "green": 1,
-                                "blue": 1
-                            },
                             "horizontalAlignment": "CENTER",
                             "verticalAlignment": "MIDDLE"
                         }
                     },
-                    "fields": "userEnteredFormat(textFormat,backgroundColor,textColor,horizontalAlignment,verticalAlignment)"
+                    "fields": "userEnteredFormat(textFormat,backgroundColor,horizontalAlignment,verticalAlignment)"
                 }
             },
             # Auto-resize columns
@@ -508,6 +504,65 @@ def compute_recipe_costs(spreadsheet_id: str, config_path: str = None,
             "ingredients": ingredient_costs,
             "missing_prices": missing_prices,
         })
+
+    # ── Write results to the spreadsheet tabs ──
+    if service is None:
+        service = get_sheets_service()
+
+    # 1. Latest Prices tab
+    price_rows = [["Ingredient", "Unit Price", "Unit", "Qty Purchased", "Total Price", "Date", "Supplier"]]
+    for name, info in sorted(latest_prices.items()):
+        price_rows.append([
+            name, info["unit_price"], info["unit"],
+            info.get("quantity_purchased", ""), info.get("total_price", ""),
+            info["date"], info["supplier"]
+        ])
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{LATEST_PRICES_SHEET}!A1",
+        valueInputOption="USER_ENTERED",
+        body={"values": price_rows}
+    ).execute()
+
+    # 2. Recipes tab — cost breakdown per product
+    recipe_rows = [["Product", "Size", "Batch", "Ingredient $/Roll", "Labor $/Roll",
+                    "Overhead $/Roll", "Insurance $/Roll", "Supplies $/Roll",
+                    "Total $/Roll", "Wholesale $/Roll", "Frozen Margin %"]]
+    for r in results:
+        recipe_rows.append([
+            r["product"], r["size"], r["batch_rolls"],
+            r["ingredient_cost_per_roll"], r["labor_cost_per_roll"],
+            r["overhead_cost_per_roll"], r["insurance_cost_per_roll"],
+            r["supplies_cost_per_roll"], r["total_cost_per_roll"],
+            r["frozen_price_per_roll"], f"{r['frozen_margin_pct']}%"
+        ])
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{RECIPES_SHEET}!A1",
+        valueInputOption="USER_ENTERED",
+        body={"values": recipe_rows}
+    ).execute()
+
+    # 3. Margins tab — selling prices and margins
+    margin_rows = [["Product", "Total Cost/Roll", "Frozen Wholesale", "Frozen Margin %",
+                    "Frozen Profit/Roll", "Cooked Low", "Cooked High",
+                    "Cooked Margin Low %", "Cooked Margin High %"]]
+    for r in results:
+        margin_rows.append([
+            r["product"], r["total_cost_per_roll"],
+            r["frozen_price_per_roll"], f"{r['frozen_margin_pct']}%",
+            r["frozen_profit_per_roll"],
+            r["cooked_price_low"], r["cooked_price_high"],
+            f"{r['cooked_margin_low_pct']}%", f"{r['cooked_margin_high_pct']}%"
+        ])
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{MARGINS_SHEET}!A1",
+        valueInputOption="USER_ENTERED",
+        body={"values": margin_rows}
+    ).execute()
+
+    print(f"  Updated tabs: {LATEST_PRICES_SHEET}, {RECIPES_SHEET}, {MARGINS_SHEET}")
 
     return results
 
