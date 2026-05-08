@@ -1,0 +1,47 @@
+{
+  "business": {
+    "industry": "service",
+    "description": "Service-based business"
+  },
+  "items": {
+    "aliases": {},
+    "categories": ["Materials", "Supplies", "Equipment", "Consumables"]
+  },
+  "products": {
+    "unit_name": "job"
+  },
+  "overhead": {
+    "cost_categories": [
+      {"name": "Labor", "monthly_amount": 0},
+      {"name": "Rent/Office", "monthly_amount": 0},
+      {"name": "Insurance", "monthly_amount": 0},
+      {"name": "Vehicle/Transport", "monthly_amount": 0},
+      {"name": "Tools/Equipment", "monthly_amount": 0}
+    ]
+  },
+  "pricing": {
+    "tiers": {
+      "standard": {
+        "label": "Standard Rate",
+        "prices": {}
+      }
+    }
+  },
+  "extraction": {
+    "prompt_context": "They purchase materials, supplies, and equipment from various vendors.",
+    "item_term": "item",
+    "receipt_rules": [
+      "For quantity, use the number and unit as printed",
+      "Note any job or project references in raw_description"
+    ]
+  },
+  "sheets": {
+    "tab_names": {
+      "purchases": "Purchases",
+      "latest_prices": "Latest Prices",
+      "recipes": "Job Costs",
+      "margins": "Margins",
+      "unmapped": "Unmapped Items"
+    }
+  }
+}

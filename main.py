@@ -1,39 +1,18 @@
 """
-main.py — Google Cloud Function entry point for the SpringRoll House Receipt Scanner.
+main.py — Google Cloud Function entry point for the Receipt Scanner.
+
+A configurable receipt scanning pipeline that works for any business.
+Business-specific behavior (extraction prompt, item mapping, cost categories,
+pricing tiers) is driven by config/business_config.json.
 
 Deployment:
     gcloud functions deploy scan-receipt \
         --runtime python312 \
         --trigger-http \
-        --no-allow-unauthenticated \
         --entry-point scan_receipt \
         --set-env-vars ANTHROPIC_API_KEY=sk-...,SPREADSHEET_ID=1abc...,SCANNER_API_KEY=your-secret \
         --memory 512MB \
         --timeout 60s
-
-Usage:
-    1. HTTP POST with base64 image:
-        curl -X POST https://REGION-PROJECT.cloudfunctions.net/scan-receipt \
-            -H "Content-Type: application/json" \
-            -d '{"image_base64": "...", "media_type": "image/png", "source": "photo"}'
-
-    2. HTTP POST with image URL:
-        curl -X POST https://REGION-PROJECT.cloudfunctions.net/scan-receipt \
-            -H "Content-Type: application/json" \
-            -d '{"image_url": "https://...", "source": "photo"}'
-
-Response:
-    {
-        "status": "success",
-        "receipt_id": "Restaurant Depot_2026-03-04_092345",
-        "merchant": "Restaurant Depot",
-        "items_extracted": 17,
-        "items_mapped": 15,
-        "items_unmapped": 2,
-        "total": 905.10,
-        "rows_appended": 17,
-        "recipe_costs": [ ... ]
-    }
 """
 
 import functions_framework
@@ -44,6 +23,7 @@ import secrets
 import uuid
 from datetime import datetime
 
+from config_loader import load_business_config
 from receipt_extractor import extract_receipt
 from ingredient_mapper import map_receipt_items, load_aliases, UNMAPPED_PREFIX
 from sheets_client import (
@@ -154,10 +134,11 @@ def _format_text_summary(response_data: dict) -> str:
     lines.append("")
     costs = response_data.get("recipe_costs", [])
     if costs:
-        lines.append("Updated Recipe Costs:")
+        lines.append("Updated Product Costs:")
         for r in costs:
-            lines.append(f"  {r['product']}: ${r['total_cost_per_roll']:.3f}/roll "
-                         f"— {r['frozen_margin_pct']}% margin")
+            unit = r.get('unit_name', 'unit')
+            lines.append(f"  {r['product']}: ${r['total_cost_per_unit']:.3f}/{unit} "
+                         f"— {r.get('frozen_margin_pct', 0)}% margin")
     return "\n".join(lines)
 
 
@@ -176,13 +157,23 @@ def scan_receipt(request):
             "GOOGLE_SHEETS_CREDENTIALS_JSON",
             os.path.join(os.path.dirname(__file__), "config", "service_account.json")
         )
+        try:
+            config = load_business_config()
+            business_name = config.get("business", {}).get("name", "Unknown")
+            config_loaded = True
+        except (FileNotFoundError, ValueError):
+            business_name = "Not configured"
+            config_loaded = False
+
         checks = {
+            "business_name": business_name,
+            "config_loaded": config_loaded,
             "anthropic_key_configured": bool(ANTHROPIC_API_KEY),
             "spreadsheet_id_configured": bool(SPREADSHEET_ID),
             "scanner_api_key_configured": bool(API_KEY),
             "credentials_file_exists": os.path.exists(creds_path),
         }
-        healthy = checks["anthropic_key_configured"] and checks["spreadsheet_id_configured"]
+        healthy = checks["anthropic_key_configured"] and checks["spreadsheet_id_configured"] and config_loaded
         return (json.dumps({
             "status": "healthy" if healthy else "degraded",
             "checks": checks,
@@ -322,17 +313,21 @@ def scan_receipt(request):
                 elif image_url.lower().endswith(".webp"):
                     media_type = "image/webp"
 
+        # ── Load business config ──
+        config = load_business_config()
+
         # ── Step 1: Extract receipt data with Claude Vision ──
         logger.info("[%s] Extracting receipt...", request_id)
         receipt_data = extract_receipt(
             image_base64=image_base64,
-            media_type=media_type
+            media_type=media_type,
+            config=config,
         )
         logger.info("[%s] Extracted %d items from %s", request_id,
                      len(receipt_data.get('items', [])),
                      receipt_data.get('merchant', 'unknown'))
 
-        # ── Step 2: Map ingredients to canonical names ──
+        # ── Step 2: Map items to canonical names ──
         aliases = load_aliases()
         mapped_receipt = map_receipt_items(receipt_data, aliases)
         stats = mapped_receipt.get("_mapping_stats", {})
@@ -343,13 +338,14 @@ def scan_receipt(request):
         logger.info("[%s] Writing to Purchases Database...", request_id)
         service = get_sheets_service()
         append_result = append_receipt_to_sheet(
-            SPREADSHEET_ID, mapped_receipt, source=source, service=service
+            SPREADSHEET_ID, mapped_receipt, source=source, service=service,
+            config=config,
         )
         logger.info("[%s] Appended %d rows", request_id, append_result['rows_appended'])
 
-        # ── Step 4: Recompute recipe costs with updated prices ──
-        logger.info("[%s] Computing updated recipe costs...", request_id)
-        recipe_costs = compute_recipe_costs(SPREADSHEET_ID, service=service)
+        # ── Step 4: Recompute product costs with updated prices ──
+        logger.info("[%s] Computing updated product costs...", request_id)
+        recipe_costs = compute_recipe_costs(SPREADSHEET_ID, config=config, service=service)
 
         # ── Build response ──
         response = {

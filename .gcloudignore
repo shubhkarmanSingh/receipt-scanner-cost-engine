@@ -1,0 +1,30 @@
+# Files to exclude from Cloud Function deployment
+.git
+.gitignore
+.gcloudignore
+.env
+.env.example
+.venv/
+__pycache__/
+*.pyc
+
+# Local dev only
+serve_local.py
+deploy.sh
+create_shortcut.py
+*.shortcut
+
+# Tests and docs
+tests/
+*.md
+ios_shortcut_guide.md
+presentation/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Config secrets should be bundled (don't ignore config/)
+# but never commit them to git

@@ -1,9 +1,9 @@
 """
 receipt_extractor.py — Extract structured data from receipt images using Claude Vision API.
 
-Sends a receipt image to Claude's vision model with a structured prompt tuned for
-SpringRoll House's typical suppliers (Restaurant Depot, Costco, local wholesalers).
-Returns a validated JSON object with merchant info and line items.
+Sends a receipt image to Claude's vision model with a dynamically built prompt
+based on the business configuration. Returns a validated JSON object with
+merchant info and line items.
 """
 
 import anthropic
@@ -25,14 +25,27 @@ _RETRYABLE_ERRORS = (
 )
 
 
-# The extraction prompt — tuned for food service supplier receipts
-EXTRACTION_PROMPT = """You are a receipt data extraction system for a food production business called SpringRoll House.
-They buy ingredients in bulk from suppliers like Restaurant Depot, Costco Business Center, and local wholesalers.
+def _build_extraction_prompt(config: dict) -> str:
+    """Build the Claude Vision extraction prompt from business config."""
+    business = config.get("business", {})
+    extraction = config.get("extraction", {})
+
+    name = business.get("name", "a business")
+    industry = business.get("industry", "general")
+    prompt_context = extraction.get("prompt_context", "")
+    item_term = extraction.get("item_term", "item")
+
+    # Build extra rules from config
+    extra_rules = extraction.get("receipt_rules", [])
+    rules_text = "\n".join(f"- {rule}" for rule in extra_rules)
+
+    return f"""You are a receipt data extraction system for a {industry} business called {name}.
+{prompt_context}
 
 Extract ALL line items from this receipt image. Return ONLY valid JSON with no other text.
 
 Required JSON format:
-{
+{{
   "merchant": "Store name exactly as printed",
   "merchant_address": "Full address if visible",
   "date": "YYYY-MM-DD format",
@@ -40,33 +53,32 @@ Required JSON format:
   "receipt_id": "Receipt/transaction number if visible, null otherwise",
   "payment_method": "VISA/CASH/CHECK etc if visible, null otherwise",
   "items": [
-    {
-      "raw_description": "Exact text from receipt for this item",
-      "name": "Clean, human-readable ingredient name",
+    {{
+      "raw_description": "Exact text from receipt for this {item_term}",
+      "name": "Clean, human-readable {item_term} name",
       "quantity": 0.0,
       "unit": "lb/oz/sheet/pkg/ea/gal/cs/bag",
       "unit_price": 0.00,
       "total_price": 0.00
-    }
+    }}
   ],
   "subtotal": 0.00,
   "tax": 0.00,
   "total": 0.00
-}
+}}
 
 Rules:
 - Extract EVERY line item, even packaging supplies (bags, trays, labels)
-- For quantity, use the number and unit as printed (e.g., 35 LB, 1200 SHT, 4 EA)
 - Calculate unit_price as total_price / quantity when not explicitly shown
-- If a price seems to be for a case/bulk unit, note the full description in raw_description
 - Use null for any field you cannot determine from the receipt
 - Ensure all prices are numbers (not strings), without dollar signs
 - The date should always be YYYY-MM-DD even if printed differently on the receipt
+{rules_text}
 """
 
 
 def extract_receipt(image_path: str | None = None, image_base64: str | None = None,
-                    media_type: str = "image/png") -> dict:
+                    media_type: str = "image/png", config: dict | None = None) -> dict:
     """
     Extract structured data from a receipt image using Claude Vision.
 
@@ -74,6 +86,7 @@ def extract_receipt(image_path: str | None = None, image_base64: str | None = No
         image_path: Path to a receipt image file (PNG, JPG, WEBP)
         image_base64: Base64-encoded image string (alternative to image_path)
         media_type: MIME type of the image (image/png, image/jpeg, image/webp)
+        config: Business configuration dict. Loaded from default path if None.
 
     Returns:
         dict: Structured receipt data with merchant info and line items
@@ -84,6 +97,10 @@ def extract_receipt(image_path: str | None = None, image_base64: str | None = No
     """
     if image_path is None and image_base64 is None:
         raise ValueError("Provide either image_path or image_base64")
+
+    if config is None:
+        from config_loader import load_business_config
+        config = load_business_config()
 
     # Read and encode the image if path provided
     if image_path and image_base64 is None:
@@ -104,6 +121,9 @@ def extract_receipt(image_path: str | None = None, image_base64: str | None = No
             ".gif": "image/gif",
         }
         media_type = media_type_map.get(ext, media_type)
+
+    # Build the extraction prompt from business config
+    prompt = _build_extraction_prompt(config)
 
     # Call Claude Vision API with retry logic
     client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
@@ -128,7 +148,7 @@ def extract_receipt(image_path: str | None = None, image_base64: str | None = No
                             },
                             {
                                 "type": "text",
-                                "text": EXTRACTION_PROMPT,
+                                "text": prompt,
                             },
                         ],
                     }

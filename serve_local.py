@@ -7,6 +7,8 @@ The server listens on http://0.0.0.0:8080 and accepts:
   - POST /      — JSON body with {image_base64, media_type, source}
   - POST /scan  — Raw image bytes (for iOS Shortcuts)
   - GET  /health — Health check
+
+Business-specific behavior is driven by config/business_config.json.
 """
 import os
 from dotenv import load_dotenv

@@ -1,0 +1,51 @@
+{
+  "business": {
+    "industry": "retail",
+    "description": "Retail store or shop"
+  },
+  "items": {
+    "aliases": {},
+    "categories": ["Inventory", "Supplies", "Packaging", "Equipment", "Cleaning"]
+  },
+  "products": {
+    "unit_name": "unit"
+  },
+  "overhead": {
+    "cost_categories": [
+      {"name": "Labor", "monthly_amount": 0},
+      {"name": "Rent", "monthly_amount": 0},
+      {"name": "Utilities", "monthly_amount": 0},
+      {"name": "Insurance", "monthly_amount": 0},
+      {"name": "Marketing", "monthly_amount": 0}
+    ]
+  },
+  "pricing": {
+    "tiers": {
+      "retail": {
+        "label": "Retail Price",
+        "prices": {}
+      },
+      "wholesale": {
+        "label": "Wholesale Price",
+        "prices": {}
+      }
+    }
+  },
+  "extraction": {
+    "prompt_context": "They purchase inventory and supplies from wholesale distributors and manufacturers.",
+    "item_term": "product",
+    "receipt_rules": [
+      "For quantity, use the number and unit as printed (e.g., 100 EA, 5 CS, 12 PK)",
+      "Note the SKU or item number if visible in raw_description"
+    ]
+  },
+  "sheets": {
+    "tab_names": {
+      "purchases": "Purchases",
+      "latest_prices": "Latest Costs",
+      "recipes": "Product Costs",
+      "margins": "Margins",
+      "unmapped": "Unmapped Items"
+    }
+  }
+}

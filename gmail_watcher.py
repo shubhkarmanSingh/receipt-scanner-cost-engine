@@ -4,7 +4,7 @@ gmail_watcher.py — Monitor a Gmail inbox for receipt photos and auto-process t
 This script runs as a secondary Cloud Function (or cron job) that:
   1. Checks the dedicated Gmail inbox for unprocessed emails with image attachments
   2. Downloads the image
-  3. Calls the receipt extraction pipeline
+  3. Calls the receipt extraction pipeline (configured via business_config.json)
   4. Labels the email as "Processed"
 
 Setup:

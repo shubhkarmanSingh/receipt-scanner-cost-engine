@@ -4,6 +4,8 @@
 config/service_account.json
 config/gmail_credentials.json
 config/gmail_token.json
+config/business_config.json
+config/examples/
 __pycache__/
 *.pyc
 tests/test_output.json

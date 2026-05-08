@@ -1,27 +1,26 @@
 """
-ingredient_mapper.py — Map raw receipt item descriptions to canonical ingredient names.
+ingredient_mapper.py — Map raw receipt item descriptions to canonical names.
 
-Uses a fuzzy matching approach against the aliases defined in config/ingredients.json.
+Uses a fuzzy matching approach against the aliases defined in the business config.
 When no alias matches, flags the item as "UNMAPPED" for manual review.
 """
 
-import json
-import os
 import re
+from config_loader import load_business_config
 
-# Prefix applied to items that don't match any known ingredient alias
+# Prefix applied to items that don't match any known alias
 UNMAPPED_PREFIX = "UNMAPPED: "
 
 
 def load_aliases(config_path: str | None = None) -> dict:
-    """Load ingredient alias configuration."""
-    if config_path is None:
-        config_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "config", "ingredients.json"
-        )
-    with open(config_path, "r") as f:
-        return json.load(f)
+    """Load item alias configuration from business config.
+
+    Returns the full config dict for backward compatibility.
+    The aliases are at config["items"]["aliases"].
+    """
+    config = load_business_config(config_path)
+    # Return a dict shaped like the old ingredients.json for backward compat
+    return {"aliases": config.get("items", {}).get("aliases", {})}
 
 
 def map_ingredient(raw_description: str, aliases: dict | None = None) -> dict:

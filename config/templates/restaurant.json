@@ -1,0 +1,51 @@
+{
+  "business": {
+    "industry": "restaurant",
+    "description": "Restaurant or food service business"
+  },
+  "items": {
+    "aliases": {},
+    "categories": ["Protein", "Produce", "Dairy", "Seasoning", "Grain", "Beverage", "Supply", "Packaging"]
+  },
+  "products": {
+    "unit_name": "serving"
+  },
+  "overhead": {
+    "cost_categories": [
+      {"name": "Labor", "monthly_amount": 0},
+      {"name": "Rent", "monthly_amount": 0},
+      {"name": "Utilities", "monthly_amount": 0},
+      {"name": "Insurance", "monthly_amount": 0},
+      {"name": "Supplies", "monthly_amount": 0}
+    ]
+  },
+  "pricing": {
+    "tiers": {
+      "dine_in": {
+        "label": "Dine-In",
+        "prices": {}
+      },
+      "takeout": {
+        "label": "Takeout/Delivery",
+        "prices": {}
+      }
+    }
+  },
+  "extraction": {
+    "prompt_context": "They purchase food ingredients and supplies from restaurant suppliers and wholesale distributors.",
+    "item_term": "ingredient",
+    "receipt_rules": [
+      "For quantity, use the number and unit as printed (e.g., 35 LB, 4 EA, 2 CS)",
+      "If a price seems to be for a case/bulk unit, note the full description in raw_description"
+    ]
+  },
+  "sheets": {
+    "tab_names": {
+      "purchases": "Purchases",
+      "latest_prices": "Latest Prices",
+      "recipes": "Menu Costs",
+      "margins": "Margins",
+      "unmapped": "Unmapped Items"
+    }
+  }
+}
