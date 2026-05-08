@@ -18,3 +18,4 @@ tests/test_pipeline.py
 tests/mock_receipt_*
 tests/test_output.json
 .venv/
+ios_shortcut_guide.md
