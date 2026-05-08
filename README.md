@@ -11,20 +11,20 @@ Configurable for any industry — no code changes needed.
 │   INPUT CHANNELS    │     │    PROCESSING        │     │    OUTPUT           │
 │                     │     │                      │     │                     │
 │  Phone photo        │────>│  Claude Vision API   │────>│  Google Sheets      │
-│  (iOS Shortcut)     │     │  (receipt_extractor)  │     │  "Purchases" tab    │
+│  (iOS Shortcut)     │     │  (receipt_extractor) │     │  "Purchases" tab    │
 │                     │     │                      │     │                     │
 │  Supplier email     │────>│  Item Mapper         │────>│  "Latest Prices"    │
-│  (auto-parsed)      │     │  (ingredient_mapper)  │     │  (auto-calculated)  │
+│  (auto-parsed)      │     │  (ingredient_mapper) │     │  (auto-calculated)  │
 │                     │     │                      │     │                     │
 │  JSON / curl        │────>│  Sheets Client       │────>│  "Product Costs"    │
-│                     │     │  (sheets_client)      │     │  (cost/unit, margin)│
+│                     │     │  (sheets_client)     │     │  (cost/unit, margin)│
 └─────────────────────┘     └──────────────────────┘     └─────────────────────┘
                                       │
                                       v
                             ┌──────────────────────┐
-                            │  Google Cloud         │
-                            │  Function (main.py)   │
-                            │  HTTP-triggered        │
+                            │  Google Cloud        │
+                            │  Function (main.py)  │
+                            │  HTTP-triggered      │
                             └──────────────────────┘
 ```
 
@@ -57,6 +57,7 @@ python setup_wizard.py
 ```
 
 This walks you through:
+
 - Business name and industry
 - Item categories and aliases (what you buy)
 - Products/recipes (what you make)
@@ -66,6 +67,7 @@ This walks you through:
 Takes about 10-15 minutes. You can also start from an industry template (restaurant, retail, or service).
 
 To add items later:
+
 ```bash
 python setup_wizard.py --add-item
 ```
@@ -73,11 +75,13 @@ python setup_wizard.py --add-item
 ### 3. Set up Google Sheets
 
 **Create the spreadsheet:**
+
 1. Go to [Google Sheets](https://sheets.google.com) and create a new spreadsheet
 2. Copy the spreadsheet ID from the URL (the long string between `/d/` and `/edit`)
 3. Add it to your `.env` as `SPREADSHEET_ID`
 
 **Create a service account:**
+
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project (or use existing)
 3. Enable the Google Sheets API
@@ -86,6 +90,7 @@ python setup_wizard.py --add-item
 6. Share your Google Sheet with the service account email (as Editor)
 
 **Initialize the spreadsheet:**
+
 ```bash
 python sheets_client.py init YOUR_SPREADSHEET_ID
 ```
@@ -151,6 +156,7 @@ Use the included deploy script:
 ```
 
 Or deploy manually:
+
 ```bash
 gcloud functions deploy scan-receipt \
     --gen2 \
