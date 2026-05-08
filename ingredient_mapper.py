@@ -13,7 +13,7 @@ import re
 UNMAPPED_PREFIX = "UNMAPPED: "
 
 
-def load_aliases(config_path: str = None) -> dict:
+def load_aliases(config_path: str | None = None) -> dict:
     """Load ingredient alias configuration."""
     if config_path is None:
         config_path = os.path.join(
@@ -24,7 +24,7 @@ def load_aliases(config_path: str = None) -> dict:
         return json.load(f)
 
 
-def map_ingredient(raw_description: str, aliases: dict = None) -> dict:
+def map_ingredient(raw_description: str, aliases: dict | None = None) -> dict:
     """
     Map a raw receipt item description to a canonical ingredient name.
 
@@ -74,7 +74,7 @@ def map_ingredient(raw_description: str, aliases: dict = None) -> dict:
     }
 
 
-def map_receipt_items(receipt_data: dict, aliases: dict = None) -> dict:
+def map_receipt_items(receipt_data: dict, aliases: dict | None = None) -> dict:
     """
     Map all items in a parsed receipt to canonical ingredient names.
 

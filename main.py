@@ -40,7 +40,8 @@ import functions_framework
 import json
 import os
 import base64
-import traceback
+import secrets
+import uuid
 from datetime import datetime
 
 from receipt_extractor import extract_receipt
@@ -50,12 +51,114 @@ from sheets_client import (
     compute_recipe_costs,
     get_sheets_service,
 )
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # Environment variables
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")  # Used by anthropic SDK
 API_KEY = os.environ.get("SCANNER_API_KEY")  # Optional: set to require auth on requests
+
+# ── Startup validation ──
+if not ANTHROPIC_API_KEY:
+    logger.warning("ANTHROPIC_API_KEY is not set — receipt extraction will fail")
+if not SPREADSHEET_ID:
+    logger.warning("SPREADSHEET_ID is not set — Sheets writes will fail")
+if not API_KEY:
+    logger.warning("SCANNER_API_KEY is not set — endpoint is unauthenticated")
+
+# Allowed image media types
+ALLOWED_MEDIA_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+# Max image download size (10MB) — Claude's limit is ~5MB base64
+MAX_IMAGE_DOWNLOAD = 10 * 1024 * 1024
+
+
+# Max raw image size before compression (4MB — Claude limit is 5MB base64)
+MAX_RAW_IMAGE = 4 * 1024 * 1024
+
+
+def _detect_raw_image(request) -> dict | None:
+    """Detect if a request contains raw image bytes (not JSON).
+
+    iOS Shortcuts POSTs the photo as the raw body. We detect this by checking
+    magic bytes at the start of the body. Returns a dict with image_base64
+    and media_type, or None if the body is not a raw image.
+    """
+    content_type = getattr(request, 'content_type', '') or ''
+
+    # If content type is explicitly JSON, skip raw detection
+    if 'json' in content_type.lower():
+        return None
+
+    data = request.get_data()
+    if not data or len(data) < 100:
+        return None
+
+    # Detect image format from magic bytes
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        media_type = "image/png"
+    elif data[:4] == b'RIFF' and len(data) > 12 and data[8:12] == b'WEBP':
+        media_type = "image/webp"
+    elif data[:3] == b'\xff\xd8\xff':
+        media_type = "image/jpeg"
+    else:
+        # Not a recognizable image — let the JSON path handle it
+        return None
+
+    # Compress oversized images
+    if len(data) > MAX_RAW_IMAGE:
+        try:
+            from PIL import Image
+            from io import BytesIO
+            logger.info("Raw image too large (%d bytes), compressing...", len(data))
+            img = Image.open(BytesIO(data))
+            max_dim = 2048
+            if max(img.size) > max_dim:
+                img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+            buf = BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=80)
+            data = buf.getvalue()
+            media_type = "image/jpeg"
+            logger.info("Compressed to %d bytes", len(data))
+        except Exception as e:
+            logger.warning("Image compression failed: %s", e)
+            # Continue with original data — Claude might still handle it
+
+    return {
+        "image_base64": base64.standard_b64encode(data).decode("utf-8"),
+        "media_type": media_type,
+    }
+
+
+def _format_text_summary(response_data: dict) -> str:
+    """Format a human-readable plain-text summary for iOS Shortcuts."""
+    if response_data.get("status") != "success":
+        return f"Error: {response_data.get('message', 'Unknown error')}"
+
+    lines = [
+        "Receipt Scanned!",
+        f"Merchant: {response_data.get('merchant', 'Unknown')}",
+        f"Date: {response_data.get('date', 'Unknown')}",
+        f"Items: {response_data.get('items_extracted', 0)} extracted, "
+        f"{response_data.get('items_mapped', 0)} mapped",
+    ]
+    if response_data.get('items_unmapped', 0) > 0:
+        lines.append(f"Unmapped: {response_data['items_unmapped']} (logged for review)")
+    subtotal = response_data.get('subtotal')
+    if subtotal:
+        lines.append(f"Subtotal: ${subtotal:.2f}")
+    lines.append(f"Rows written to Google Sheets: {response_data.get('rows_appended', 0)}")
+    lines.append("")
+    costs = response_data.get("recipe_costs", [])
+    if costs:
+        lines.append("Updated Recipe Costs:")
+        for r in costs:
+            lines.append(f"  {r['product']}: ${r['total_cost_per_roll']:.3f}/roll "
+                         f"— {r['frozen_margin_pct']}% margin")
+    return "\n".join(lines)
 
 
 @functions_framework.http
@@ -64,7 +167,30 @@ def scan_receipt(request):
     Cloud Function entry point. Accepts an HTTP POST with a receipt image,
     extracts data using Claude Vision, maps ingredients, writes to Sheets,
     and returns updated recipe costs.
+
+    Also handles GET /health for uptime monitoring.
     """
+    # ── Health check endpoint ──
+    if request.method == "GET" and getattr(request, 'path', '/') in ("/health", "/"):
+        creds_path = os.environ.get(
+            "GOOGLE_SHEETS_CREDENTIALS_JSON",
+            os.path.join(os.path.dirname(__file__), "config", "service_account.json")
+        )
+        checks = {
+            "anthropic_key_configured": bool(ANTHROPIC_API_KEY),
+            "spreadsheet_id_configured": bool(SPREADSHEET_ID),
+            "scanner_api_key_configured": bool(API_KEY),
+            "credentials_file_exists": os.path.exists(creds_path),
+        }
+        healthy = checks["anthropic_key_configured"] and checks["spreadsheet_id_configured"]
+        return (json.dumps({
+            "status": "healthy" if healthy else "degraded",
+            "checks": checks,
+        }), 200 if healthy else 503, {
+            "Content-Type": "application/json",
+            "X-Content-Type-Options": "nosniff",
+        })
+
     # ── CORS headers for browser requests ──
     if request.method == "OPTIONS":
         headers = {
@@ -75,12 +201,19 @@ def scan_receipt(request):
         }
         return ("", 204, headers)
 
-    headers = {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"}
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+        "X-Content-Type-Options": "nosniff",
+    }
+
+    # ── Request ID for log correlation ──
+    request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
 
     # ── API key authentication (if SCANNER_API_KEY is configured) ──
     if API_KEY:
         provided_key = request.headers.get("X-API-Key", "")
-        if provided_key != API_KEY:
+        if not secrets.compare_digest(provided_key, API_KEY):
             return (json.dumps({
                 "status": "error",
                 "message": "Invalid or missing API key. Set X-API-Key header."
@@ -88,28 +221,50 @@ def scan_receipt(request):
 
     try:
         # ── Parse request ──
-        request_json = request.get_json(silent=True)
-        if not request_json:
-            # iOS Shortcuts sends body as raw data, not application/json
-            try:
-                request_json = json.loads(request.get_data(as_text=True))
-            except (json.JSONDecodeError, TypeError):
-                request_json = {}
-        image_base64 = request_json.get("image_base64")
-        image_url = request_json.get("image_url")
-        media_type = request_json.get("media_type", "image/png")
-        source = request_json.get("source", "photo")
+        # Detect if the request is raw image bytes (from iOS Shortcuts)
+        # vs. JSON with base64 (from curl / programmatic callers)
+        raw_image = _detect_raw_image(request)
+
+        if raw_image:
+            image_base64 = raw_image["image_base64"]
+            media_type = raw_image["media_type"]
+            image_url = None
+            source = "iphone"
+            logger.info("[%s] Received raw image (%s, %d bytes encoded)",
+                        request_id, media_type, len(image_base64))
+        else:
+            request_json = request.get_json(silent=True)
+            if not request_json:
+                try:
+                    request_json = json.loads(request.get_data(as_text=True))
+                except (json.JSONDecodeError, TypeError):
+                    request_json = {}
+            image_base64 = request_json.get("image_base64")
+            image_url = request_json.get("image_url")
+            media_type = request_json.get("media_type", "image/png")
+            source = request_json.get("source", "photo")
 
         if not image_base64 and not image_url:
             return (json.dumps({
                 "status": "error",
-                "message": "Provide 'image_base64' or 'image_url' in request body"
+                "message": "Provide 'image_base64' or 'image_url' in request body, "
+                           "or POST raw image bytes.",
+                "request_id": request_id,
+            }), 400, headers)
+
+        if media_type not in ALLOWED_MEDIA_TYPES:
+            return (json.dumps({
+                "status": "error",
+                "message": f"Unsupported media type: {media_type}. "
+                           f"Allowed: {', '.join(sorted(ALLOWED_MEDIA_TYPES))}",
+                "request_id": request_id,
             }), 400, headers)
 
         if not SPREADSHEET_ID:
             return (json.dumps({
                 "status": "error",
-                "message": "SPREADSHEET_ID environment variable not set"
+                "message": "SPREADSHEET_ID environment variable not set",
+                "request_id": request_id,
             }), 500, headers)
 
         # If URL provided, fetch the image
@@ -119,28 +274,47 @@ def scan_receipt(request):
             if parsed.scheme not in ("https",):
                 return (json.dumps({
                     "status": "error",
-                    "message": "Only https:// image URLs are allowed"
+                    "message": "Only https:// image URLs are allowed",
+                    "request_id": request_id,
                 }), 400, headers)
-            # Block requests to private/internal IPs
+            # Block requests to private/internal IPs (check ALL resolved addresses)
             import socket
+            import ipaddress
             try:
-                resolved_ip = socket.getaddrinfo(parsed.hostname, None)[0][4][0]
-                import ipaddress
-                ip = ipaddress.ip_address(resolved_ip)
-                if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
-                    return (json.dumps({
-                        "status": "error",
-                        "message": "URLs pointing to private/internal networks are not allowed"
-                    }), 400, headers)
+                resolved = socket.getaddrinfo(parsed.hostname, None)
+                for result in resolved:
+                    ip = ipaddress.ip_address(result[4][0])
+                    if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                        return (json.dumps({
+                            "status": "error",
+                            "message": "URLs pointing to private/internal networks are not allowed",
+                            "request_id": request_id,
+                        }), 400, headers)
             except (socket.gaierror, ValueError):
                 return (json.dumps({
                     "status": "error",
-                    "message": "Could not resolve image URL hostname"
+                    "message": "Could not resolve image URL hostname",
+                    "request_id": request_id,
                 }), 400, headers)
 
             import urllib.request
             with urllib.request.urlopen(image_url, timeout=15) as resp:
-                image_bytes = resp.read()
+                chunks = []
+                total_read = 0
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    total_read += len(chunk)
+                    if total_read > MAX_IMAGE_DOWNLOAD:
+                        return (json.dumps({
+                            "status": "error",
+                            "message": f"Image exceeds maximum download size "
+                                       f"({MAX_IMAGE_DOWNLOAD // (1024*1024)}MB)",
+                            "request_id": request_id,
+                        }), 413, headers)
+                    chunks.append(chunk)
+                image_bytes = b"".join(chunks)
                 image_base64 = base64.standard_b64encode(image_bytes).decode("utf-8")
                 # Guess media type from URL
                 if image_url.lower().endswith(".jpg") or image_url.lower().endswith(".jpeg"):
@@ -149,37 +323,38 @@ def scan_receipt(request):
                     media_type = "image/webp"
 
         # ── Step 1: Extract receipt data with Claude Vision ──
-        print(f"[{datetime.now().isoformat()}] Extracting receipt...")
+        logger.info("[%s] Extracting receipt...", request_id)
         receipt_data = extract_receipt(
             image_base64=image_base64,
             media_type=media_type
         )
-        print(f"  → Extracted {len(receipt_data.get('items', []))} items "
-              f"from {receipt_data.get('merchant', 'unknown')}")
+        logger.info("[%s] Extracted %d items from %s", request_id,
+                     len(receipt_data.get('items', [])),
+                     receipt_data.get('merchant', 'unknown'))
 
         # ── Step 2: Map ingredients to canonical names ──
-        print("  → Mapping ingredients...")
         aliases = load_aliases()
         mapped_receipt = map_receipt_items(receipt_data, aliases)
         stats = mapped_receipt.get("_mapping_stats", {})
-        print(f"  → Mapped: {stats.get('mapped', 0)}, "
-              f"Unmapped: {stats.get('unmapped', 0)}")
+        logger.info("[%s] Mapped: %d, Unmapped: %d", request_id,
+                     stats.get('mapped', 0), stats.get('unmapped', 0))
 
         # ── Step 3: Write to Google Sheets ──
-        print("  → Writing to Purchases Database...")
+        logger.info("[%s] Writing to Purchases Database...", request_id)
         service = get_sheets_service()
         append_result = append_receipt_to_sheet(
             SPREADSHEET_ID, mapped_receipt, source=source, service=service
         )
-        print(f"  → Appended {append_result['rows_appended']} rows")
+        logger.info("[%s] Appended %d rows", request_id, append_result['rows_appended'])
 
         # ── Step 4: Recompute recipe costs with updated prices ──
-        print("  → Computing updated recipe costs...")
+        logger.info("[%s] Computing updated recipe costs...", request_id)
         recipe_costs = compute_recipe_costs(SPREADSHEET_ID, service=service)
 
         # ── Build response ──
         response = {
             "status": "success",
+            "request_id": request_id,
             "timestamp": datetime.now().isoformat(),
             "receipt_id": append_result["receipt_id"],
             "merchant": receipt_data.get("merchant"),
@@ -206,16 +381,41 @@ def scan_receipt(request):
             ],
         }
 
-        print(f"  ✓ Complete! Receipt {append_result['receipt_id']}")
+        logger.info("[%s] Complete! Receipt %s", request_id, append_result['receipt_id'])
+
+        # Return plain-text summary for iOS Shortcuts, JSON for everything else
+        if raw_image:
+            summary = _format_text_summary(response)
+            text_headers = dict(headers)
+            text_headers["Content-Type"] = "text/plain; charset=utf-8"
+            return (summary, 200, text_headers)
+
         return (json.dumps(response, indent=2, default=str), 200, headers)
 
+    except ValueError as e:
+        # Client errors (bad input, duplicate receipt, validation failures)
+        logger.warning("[%s] Client error: %s", request_id, e)
+        error_body = {
+            "status": "error",
+            "request_id": request_id,
+            "message": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
+        if raw_image:
+            return (f"Error: {e}", 400, {"Content-Type": "text/plain; charset=utf-8"})
+        return (json.dumps(error_body), 400, headers)
+
     except Exception as e:
-        error_msg = f"{type(e).__name__}: {str(e)}"
-        print(f"  ✗ Error: {error_msg}")
-        traceback.print_exc()
+        # Server errors — log full details, return safe message to client
+        logger.error("[%s] Internal error: %s", request_id,
+                     f"{type(e).__name__}: {e}", exc_info=True)
+        if raw_image:
+            return (f"Error: Something went wrong. Ref: {request_id}",
+                    500, {"Content-Type": "text/plain; charset=utf-8"})
         return (json.dumps({
             "status": "error",
-            "message": error_msg,
+            "request_id": request_id,
+            "message": f"An internal error occurred. Reference ID: {request_id}",
             "timestamp": datetime.now().isoformat(),
         }), 500, headers)
 

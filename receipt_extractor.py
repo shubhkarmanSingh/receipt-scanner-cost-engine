@@ -9,7 +9,20 @@ Returns a validated JSON object with merchant info and line items.
 import anthropic
 import base64
 import json
+import time
 from pathlib import Path
+from logger import get_logger
+
+logger = get_logger(__name__)
+
+# Retry configuration for transient API errors
+_MAX_RETRIES = 3
+_RETRY_BACKOFF_BASE = 2  # seconds: 2, 4, 8
+_RETRYABLE_ERRORS = (
+    anthropic.RateLimitError,
+    anthropic.APIConnectionError,
+    anthropic.InternalServerError,
+)
 
 
 # The extraction prompt — tuned for food service supplier receipts
@@ -52,7 +65,7 @@ Rules:
 """
 
 
-def extract_receipt(image_path: str = None, image_base64: str = None,
+def extract_receipt(image_path: str | None = None, image_base64: str | None = None,
                     media_type: str = "image/png") -> dict:
     """
     Extract structured data from a receipt image using Claude Vision.
@@ -92,32 +105,43 @@ def extract_receipt(image_path: str = None, image_base64: str = None,
         }
         media_type = media_type_map.get(ext, media_type)
 
-    # Call Claude Vision API
+    # Call Claude Vision API with retry logic
     client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[
-            {
-                "role": "user",
-                "content": [
+    message = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            message = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4096,
+                messages=[
                     {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_base64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": EXTRACTION_PROMPT,
-                    },
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": image_base64,
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": EXTRACTION_PROMPT,
+                            },
+                        ],
+                    }
                 ],
-            }
-        ],
-    )
+            )
+            break
+        except _RETRYABLE_ERRORS as e:
+            if attempt == _MAX_RETRIES - 1:
+                raise
+            wait = _RETRY_BACKOFF_BASE ** (attempt + 1)
+            logger.warning("Claude API attempt %d/%d failed (%s), retrying in %ds...",
+                           attempt + 1, _MAX_RETRIES, e, wait)
+            time.sleep(wait)
 
     # Parse the response
     response_text = message.content[0].text
@@ -135,6 +159,7 @@ def extract_receipt(image_path: str = None, image_base64: str = None,
     start = response_text.find("{")
     if start != -1:
         depth = 0
+        found_end = False
         for i, ch in enumerate(response_text[start:], start):
             if ch == "{":
                 depth += 1
@@ -142,7 +167,13 @@ def extract_receipt(image_path: str = None, image_base64: str = None,
                 depth -= 1
                 if depth == 0:
                     response_text = response_text[start:i + 1]
+                    found_end = True
                     break
+        if not found_end:
+            raise ValueError(
+                f"Unmatched braces in Claude response (depth={depth}). "
+                f"Response preview: {response_text[:300]}"
+            )
 
     try:
         receipt_data = json.loads(response_text)

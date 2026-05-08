@@ -17,7 +17,40 @@ import os
 from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from ingredient_mapper import UNMAPPED_PREFIX
+from logger import get_logger
+
+logger = get_logger(__name__)
+
+# Retry configuration for transient Sheets API errors
+_MAX_RETRIES = 3
+_RETRY_BACKOFF_BASE = 2  # seconds: 2, 4, 8
+
+
+def _execute_with_retry(request, description: str = "Sheets API call"):
+    """Execute a Google Sheets API request with retry on transient errors."""
+    import time
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return request.execute()
+        except HttpError as e:
+            if e.resp.status in (429, 500, 502, 503) and attempt < _MAX_RETRIES - 1:
+                wait = _RETRY_BACKOFF_BASE ** (attempt + 1)
+                logger.warning("%s attempt %d/%d failed (HTTP %d), retrying in %ds...",
+                               description, attempt + 1, _MAX_RETRIES, e.resp.status, wait)
+                time.sleep(wait)
+            else:
+                raise
+        except (ConnectionError, TimeoutError) as e:
+            if attempt < _MAX_RETRIES - 1:
+                wait = _RETRY_BACKOFF_BASE ** (attempt + 1)
+                logger.warning("%s attempt %d/%d failed (%s), retrying in %ds...",
+                               description, attempt + 1, _MAX_RETRIES, e, wait)
+                time.sleep(wait)
+            else:
+                raise
+
 
 # ---------------------------------------------------------------------------
 # Sheet tab names (constants)
@@ -35,12 +68,18 @@ PURCHASES_COLUMNS = [
 ]
 
 
-def get_sheets_service(credentials_path: str = None):
+def get_sheets_service(credentials_path: str | None = None):
     """Authenticate and return a Google Sheets API service object."""
     if credentials_path is None:
         credentials_path = os.environ.get(
             "GOOGLE_SHEETS_CREDENTIALS_JSON",
             os.path.join(os.path.dirname(__file__), "config", "service_account.json")
+        )
+
+    if not os.path.exists(credentials_path):
+        raise FileNotFoundError(
+            f"Google Sheets credentials file not found: {credentials_path}. "
+            "Set GOOGLE_SHEETS_CREDENTIALS_JSON env var or place the file at config/service_account.json"
         )
 
     creds = service_account.Credentials.from_service_account_file(
@@ -50,24 +89,31 @@ def get_sheets_service(credentials_path: str = None):
     return build("sheets", "v4", credentials=creds)
 
 
-def _get_sheet_id(service, spreadsheet_id: str, sheet_name: str) -> int:
+def _get_sheet_id(service, spreadsheet_id: str, sheet_name: str) -> int | None:
     """Get the numeric sheet ID for a given sheet name."""
-    sheet_metadata = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    sheet_metadata = _execute_with_retry(
+        service.spreadsheets().get(spreadsheetId=spreadsheet_id),
+        "get sheet metadata"
+    )
     for sheet in sheet_metadata.get("sheets", []):
         if sheet["properties"]["title"] == sheet_name:
             return sheet["properties"]["sheetId"]
     return None
 
 
-def _format_purchases_sheet(spreadsheet_id: str, service):
-    """Apply formatting to the Purchases sheet (bold headers, borders, alternating colors)."""
+def _format_sheet_tab(spreadsheet_id: str, sheet_name: str,
+                      header_color: dict, service):
+    """Apply formatting to a sheet tab (frozen header, borders, bold header row, auto-resize).
+
+    Args:
+        header_color: RGB dict, e.g. {"red": 0.2, "green": 0.5, "blue": 0.8}
+    """
     try:
-        sheet_id = _get_sheet_id(service, spreadsheet_id, PURCHASES_SHEET)
+        sheet_id = _get_sheet_id(service, spreadsheet_id, sheet_name)
         if sheet_id is None:
             return
 
         requests = [
-            # Format header row (row 0)
             {
                 "updateSheetProperties": {
                     "fields": "gridProperties.frozenRowCount",
@@ -77,7 +123,6 @@ def _format_purchases_sheet(spreadsheet_id: str, service):
                     }
                 }
             },
-            # Add borders to all cells
             {
                 "updateBorders": {
                     "range": {
@@ -94,7 +139,6 @@ def _format_purchases_sheet(spreadsheet_id: str, service):
                     "innerVertical": {"style": "SOLID", "width": 1}
                 }
             },
-            # Format header row with bold + background color
             {
                 "repeatCell": {
                     "range": {
@@ -113,11 +157,7 @@ def _format_purchases_sheet(spreadsheet_id: str, service):
                                     "rgbColor": {"red": 1, "green": 1, "blue": 1}
                                 }
                             },
-                            "backgroundColor": {
-                                "red": 0.2,
-                                "green": 0.5,
-                                "blue": 0.8
-                            },
+                            "backgroundColor": header_color,
                             "horizontalAlignment": "CENTER",
                             "verticalAlignment": "MIDDLE"
                         }
@@ -125,7 +165,6 @@ def _format_purchases_sheet(spreadsheet_id: str, service):
                     "fields": "userEnteredFormat(textFormat,backgroundColor,horizontalAlignment,verticalAlignment)"
                 }
             },
-            # Auto-resize columns
             {
                 "autoResizeDimensions": {
                     "dimensions": {
@@ -138,112 +177,47 @@ def _format_purchases_sheet(spreadsheet_id: str, service):
             }
         ]
 
-        service.spreadsheets().batchUpdate(
-            spreadsheetId=spreadsheet_id,
-            body={"requests": requests}
-        ).execute()
-    except Exception as e:
-        print(f"Warning: Could not format Purchases sheet: {e}")
+        _execute_with_retry(
+            service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={"requests": requests}
+            ),
+            f"format {sheet_name}"
+        )
+    except HttpError as e:
+        logger.warning("Could not format %s sheet: %s", sheet_name, e)
+
+
+def _format_purchases_sheet(spreadsheet_id: str, service):
+    """Apply formatting to the Purchases sheet."""
+    _format_sheet_tab(spreadsheet_id, PURCHASES_SHEET,
+                      {"red": 0.2, "green": 0.5, "blue": 0.8}, service)
 
 
 def _format_unmapped_sheet(spreadsheet_id: str, service):
     """Apply formatting to the Unmapped Items sheet."""
-    try:
-        sheet_id = _get_sheet_id(service, spreadsheet_id, UNMAPPED_SHEET)
-        if sheet_id is None:
-            return
-
-        requests = [
-            # Freeze header row
-            {
-                "updateSheetProperties": {
-                    "fields": "gridProperties.frozenRowCount",
-                    "properties": {
-                        "sheetId": sheet_id,
-                        "gridProperties": {"frozenRowCount": 1}
-                    }
-                }
-            },
-            # Add borders
-            {
-                "updateBorders": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": 0,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": len(PURCHASES_COLUMNS)
-                    },
-                    "top": {"style": "SOLID", "width": 1},
-                    "bottom": {"style": "SOLID", "width": 1},
-                    "left": {"style": "SOLID", "width": 1},
-                    "right": {"style": "SOLID", "width": 1},
-                    "innerHorizontal": {"style": "SOLID", "width": 1},
-                    "innerVertical": {"style": "SOLID", "width": 1}
-                }
-            },
-            # Format header row
-            {
-                "repeatCell": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": 0,
-                        "endRowIndex": 1,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": len(PURCHASES_COLUMNS)
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "textFormat": {
-                                "bold": True,
-                                "fontSize": 11,
-                                "foregroundColorStyle": {
-                                    "rgbColor": {"red": 1, "green": 1, "blue": 1}
-                                }
-                            },
-                            "backgroundColor": {
-                                "red": 0.8,
-                                "green": 0.4,
-                                "blue": 0.2
-                            },
-                            "horizontalAlignment": "CENTER",
-                            "verticalAlignment": "MIDDLE"
-                        }
-                    },
-                    "fields": "userEnteredFormat(textFormat,backgroundColor,horizontalAlignment,verticalAlignment)"
-                }
-            },
-            # Auto-resize columns
-            {
-                "autoResizeDimensions": {
-                    "dimensions": {
-                        "sheetId": sheet_id,
-                        "dimension": "COLUMNS",
-                        "startIndex": 0,
-                        "endIndex": len(PURCHASES_COLUMNS)
-                    }
-                }
-            }
-        ]
-
-        service.spreadsheets().batchUpdate(
-            spreadsheetId=spreadsheet_id,
-            body={"requests": requests}
-        ).execute()
-    except Exception as e:
-        print(f"Warning: Could not format Unmapped sheet: {e}")
+    _format_sheet_tab(spreadsheet_id, UNMAPPED_SHEET,
+                      {"red": 0.8, "green": 0.4, "blue": 0.2}, service)
 
 
 def _check_duplicate_receipt(spreadsheet_id: str, receipt_id: str, service) -> bool:
     """Check if a receipt ID already exists in the Purchases sheet."""
     try:
-        result = service.spreadsheets().values().get(
-            spreadsheetId=spreadsheet_id,
-            range=f"{PURCHASES_SHEET}!K:K"  # Receipt ID column
-        ).execute()
+        result = _execute_with_retry(
+            service.spreadsheets().values().get(
+                spreadsheetId=spreadsheet_id,
+                range=f"{PURCHASES_SHEET}!K:K"  # Receipt ID column
+            ),
+            "check duplicate receipt"
+        )
         existing_ids = [row[0] for row in result.get("values", [])[1:] if row]
         return receipt_id in existing_ids
-    except Exception:
-        return False
+    except HttpError as e:
+        # Only swallow 404 (sheet doesn't exist yet) — all other errors propagate
+        if e.resp.status == 404:
+            logger.warning("Purchases sheet not found during duplicate check, assuming no duplicates")
+            return False
+        raise
 
 
 def append_receipt_to_sheet(spreadsheet_id: str, receipt_data: dict,
@@ -301,13 +275,16 @@ def append_receipt_to_sheet(spreadsheet_id: str, receipt_data: dict,
             unmapped_rows.append(row)
 
     # Append to Purchases sheet
-    result = service.spreadsheets().values().append(
-        spreadsheetId=spreadsheet_id,
-        range=f"{PURCHASES_SHEET}!A:K",
-        valueInputOption="USER_ENTERED",
-        insertDataOption="INSERT_ROWS",
-        body={"values": rows}
-    ).execute()
+    result = _execute_with_retry(
+        service.spreadsheets().values().append(
+            spreadsheetId=spreadsheet_id,
+            range=f"{PURCHASES_SHEET}!A:K",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body={"values": rows}
+        ),
+        "append to Purchases"
+    )
 
     # Format the newly appended rows
     if rows:
@@ -316,16 +293,19 @@ def append_receipt_to_sheet(spreadsheet_id: str, receipt_data: dict,
     # Also log unmapped items to a separate tab for review
     if unmapped_rows:
         try:
-            service.spreadsheets().values().append(
-                spreadsheetId=spreadsheet_id,
-                range=f"{UNMAPPED_SHEET}!A:K",
-                valueInputOption="USER_ENTERED",
-                insertDataOption="INSERT_ROWS",
-                body={"values": unmapped_rows}
-            ).execute()
+            _execute_with_retry(
+                service.spreadsheets().values().append(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"{UNMAPPED_SHEET}!A:K",
+                    valueInputOption="USER_ENTERED",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": unmapped_rows}
+                ),
+                "append to Unmapped Items"
+            )
             _format_unmapped_sheet(spreadsheet_id, service)
-        except Exception as e:
-            print(f"Warning: Could not write to Unmapped Items sheet: {e}")
+        except HttpError as e:
+            logger.warning("Could not write to Unmapped Items sheet: %s", e, exc_info=True)
 
     return {
         "rows_appended": len(rows),
@@ -336,7 +316,7 @@ def append_receipt_to_sheet(spreadsheet_id: str, receipt_data: dict,
     }
 
 
-def get_latest_prices(spreadsheet_id: str, service=None) -> dict:
+def get_latest_prices(spreadsheet_id: str, service=None) -> dict[str, dict]:
     """
     Read all purchase data and compute the latest unit price for each ingredient.
 
@@ -346,10 +326,13 @@ def get_latest_prices(spreadsheet_id: str, service=None) -> dict:
     if service is None:
         service = get_sheets_service()
 
-    result = service.spreadsheets().values().get(
-        spreadsheetId=spreadsheet_id,
-        range=f"{PURCHASES_SHEET}!A:K"
-    ).execute()
+    result = _execute_with_retry(
+        service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=f"{PURCHASES_SHEET}!A:K"
+        ),
+        "read Purchases data"
+    )
 
     rows = result.get("values", [])
     if len(rows) < 2:  # Only header or empty
@@ -366,6 +349,11 @@ def get_latest_prices(spreadsheet_id: str, service=None) -> dict:
             unit_price_num = float(unit_price)
             qty_num = float(qty)
         except (ValueError, TypeError):
+            continue
+
+        if unit_price_num < 0 or qty_num < 0:
+            logger.warning("Skipping %s: negative price (%.2f) or qty (%.2f)",
+                           canonical, unit_price_num, qty_num)
             continue
 
         if category == "Uncategorized":
@@ -385,8 +373,8 @@ def get_latest_prices(spreadsheet_id: str, service=None) -> dict:
     return latest
 
 
-def compute_recipe_costs(spreadsheet_id: str, config_path: str = None,
-                         service=None) -> list:
+def compute_recipe_costs(spreadsheet_id: str, config_path: str | None = None,
+                         service=None) -> list[dict]:
     """
     Compute the complete cost breakdown per roll for each product.
     
@@ -517,12 +505,15 @@ def compute_recipe_costs(spreadsheet_id: str, config_path: str = None,
             info.get("quantity_purchased", ""), info.get("total_price", ""),
             info["date"], info["supplier"]
         ])
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{LATEST_PRICES_SHEET}!A1",
-        valueInputOption="USER_ENTERED",
-        body={"values": price_rows}
-    ).execute()
+    _execute_with_retry(
+        service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{LATEST_PRICES_SHEET}!A1",
+            valueInputOption="USER_ENTERED",
+            body={"values": price_rows}
+        ),
+        "update Latest Prices"
+    )
 
     # 2. Recipes tab — cost breakdown per product
     recipe_rows = [["Product", "Size", "Batch", "Ingredient $/Roll", "Labor $/Roll",
@@ -536,12 +527,15 @@ def compute_recipe_costs(spreadsheet_id: str, config_path: str = None,
             r["supplies_cost_per_roll"], r["total_cost_per_roll"],
             r["frozen_price_per_roll"], f"{r['frozen_margin_pct']}%"
         ])
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{RECIPES_SHEET}!A1",
-        valueInputOption="USER_ENTERED",
-        body={"values": recipe_rows}
-    ).execute()
+    _execute_with_retry(
+        service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{RECIPES_SHEET}!A1",
+            valueInputOption="USER_ENTERED",
+            body={"values": recipe_rows}
+        ),
+        "update Recipes"
+    )
 
     # 3. Margins tab — selling prices and margins
     margin_rows = [["Product", "Total Cost/Roll", "Frozen Wholesale", "Frozen Margin %",
@@ -555,14 +549,17 @@ def compute_recipe_costs(spreadsheet_id: str, config_path: str = None,
             r["cooked_price_low"], r["cooked_price_high"],
             f"{r['cooked_margin_low_pct']}%", f"{r['cooked_margin_high_pct']}%"
         ])
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{MARGINS_SHEET}!A1",
-        valueInputOption="USER_ENTERED",
-        body={"values": margin_rows}
-    ).execute()
+    _execute_with_retry(
+        service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{MARGINS_SHEET}!A1",
+            valueInputOption="USER_ENTERED",
+            body={"values": margin_rows}
+        ),
+        "update Margins"
+    )
 
-    print(f"  Updated tabs: {LATEST_PRICES_SHEET}, {RECIPES_SHEET}, {MARGINS_SHEET}")
+    logger.info("Updated tabs: %s, %s, %s", LATEST_PRICES_SHEET, RECIPES_SHEET, MARGINS_SHEET)
 
     return results
 
@@ -580,7 +577,10 @@ def initialize_spreadsheet(spreadsheet_id: str, service=None) -> None:
                       MARGINS_SHEET, UNMAPPED_SHEET]
 
     # Get existing sheet names
-    spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    spreadsheet = _execute_with_retry(
+        service.spreadsheets().get(spreadsheetId=spreadsheet_id),
+        "get spreadsheet metadata"
+    )
     existing_tabs = {s["properties"]["title"] for s in spreadsheet["sheets"]}
 
     requests = []
@@ -609,28 +609,37 @@ def initialize_spreadsheet(spreadsheet_id: str, service=None) -> None:
                         if not (r.get("addSheet", {}).get("properties", {}).get("title") == PURCHASES_SHEET)]
 
     if requests:
-        service.spreadsheets().batchUpdate(
-            spreadsheetId=spreadsheet_id,
-            body={"requests": requests}
-        ).execute()
+        _execute_with_retry(
+            service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={"requests": requests}
+            ),
+            "create sheet tabs"
+        )
 
     # Set headers for Purchases sheet
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{PURCHASES_SHEET}!A1:K1",
-        valueInputOption="USER_ENTERED",
-        body={"values": [PURCHASES_COLUMNS]}
-    ).execute()
+    _execute_with_retry(
+        service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{PURCHASES_SHEET}!A1:K1",
+            valueInputOption="USER_ENTERED",
+            body={"values": [PURCHASES_COLUMNS]}
+        ),
+        "set Purchases headers"
+    )
 
     # Set headers for Unmapped Items
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{UNMAPPED_SHEET}!A1:K1",
-        valueInputOption="USER_ENTERED",
-        body={"values": [PURCHASES_COLUMNS]}
-    ).execute()
+    _execute_with_retry(
+        service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{UNMAPPED_SHEET}!A1:K1",
+            valueInputOption="USER_ENTERED",
+            body={"values": [PURCHASES_COLUMNS]}
+        ),
+        "set Unmapped Items headers"
+    )
 
-    print(f"✓ Spreadsheet initialized with tabs: {tabs_to_create}")
+    logger.info("Spreadsheet initialized with tabs: %s", tabs_to_create)
 
 
 # ---------------------------------------------------------------------------

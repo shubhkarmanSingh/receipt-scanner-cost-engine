@@ -1,10 +1,15 @@
 """
 Generate an Apple Shortcuts .shortcut file for the SpringRoll Receipt Scanner.
 
-This version POSTs the raw photo to /scan — no base64 or JSON needed.
+The shortcut takes a photo and POSTs the raw image bytes to the server.
+Works with both Cloud Functions and local dev server.
 
 Usage:
-    python create_shortcut.py [server_url]
+    python create_shortcut.py <cloud_function_url>
+    python create_shortcut.py https://us-west1-myproject.cloudfunctions.net/scan-receipt
+
+For local development:
+    python create_shortcut.py http://localhost:8080
 """
 import os
 import plistlib
@@ -87,7 +92,17 @@ def create_shortcut(server_url: str) -> bytes:
 
 
 if __name__ == "__main__":
-    url = sys.argv[1] if len(sys.argv) > 1 else "https://little-parents-cut.loca.lt"
+    if len(sys.argv) < 2:
+        print("Usage: python create_shortcut.py <server_url>")
+        print("")
+        print("  For Cloud Functions (production):")
+        print("    python create_shortcut.py https://REGION-PROJECT.cloudfunctions.net/scan-receipt")
+        print("")
+        print("  For local development:")
+        print("    python create_shortcut.py http://localhost:8080")
+        sys.exit(1)
+
+    url = sys.argv[1]
 
     unsigned_path = "ScanReceipt.shortcut"
     signed_path = "ScanReceipt-signed.shortcut"

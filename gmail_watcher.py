@@ -18,6 +18,7 @@ For V1, this can also be triggered manually:
 
 import os
 
+from logger import get_logger
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -31,7 +32,11 @@ from sheets_client import append_receipt_to_sheet, get_sheets_service
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 # Label for processed receipts
+logger = get_logger(__name__)
+
 PROCESSED_LABEL = "Receipts/Processed"
+FAILED_LABEL = "Receipts/Failed"
+_MAX_FAILURES_PER_MESSAGE = 3
 
 
 def get_gmail_service(credentials_path: str = None, token_path: str = None):
@@ -131,7 +136,7 @@ def process_inbox(spreadsheet_id: str = None, max_messages: int = 10):
     if spreadsheet_id is None:
         spreadsheet_id = os.environ.get("SPREADSHEET_ID")
     if not spreadsheet_id:
-        print("Error: SPREADSHEET_ID not provided and not set as an environment variable.")
+        logger.error("SPREADSHEET_ID not provided and not set as an environment variable.")
         return 0
 
     gmail = get_gmail_service()
@@ -140,30 +145,34 @@ def process_inbox(spreadsheet_id: str = None, max_messages: int = 10):
 
     # Get or create labels
     processed_label_id = get_or_create_label(gmail, PROCESSED_LABEL)
+    failed_label_id = get_or_create_label(gmail, FAILED_LABEL)
+
+    # Track per-message failure counts within this run
+    failure_counts: dict[str, int] = {}
 
     # Search for unprocessed messages with attachments
-    query = f"has:attachment -label:{PROCESSED_LABEL} newer_than:7d"
+    query = f"has:attachment -label:{PROCESSED_LABEL} -label:{FAILED_LABEL} newer_than:7d"
     results = gmail.users().messages().list(
         userId="me", q=query, maxResults=max_messages
     ).execute()
 
     messages = results.get("messages", [])
-    print(f"Found {len(messages)} unprocessed messages with attachments")
+    logger.info("Found %d unprocessed messages with attachments", len(messages))
 
     processed_count = 0
     for msg_info in messages:
         msg_id = msg_info["id"]
-        print(f"\nProcessing message {msg_id}...")
+        logger.info("Processing message %s...", msg_id)
 
         try:
             # Get image attachments
             attachments = get_image_attachments(gmail, msg_id)
             if not attachments:
-                print(f"  No image attachments found, skipping")
+                logger.info("  No image attachments in message %s, skipping", msg_id)
                 continue
 
             for att in attachments:
-                print(f"  Processing: {att['filename']} ({att['media_type']})")
+                logger.info("  Processing: %s (%s)", att['filename'], att['media_type'])
 
                 # Extract receipt data
                 receipt_data = extract_receipt(
@@ -180,9 +189,10 @@ def process_inbox(spreadsheet_id: str = None, max_messages: int = 10):
                     spreadsheet_id, mapped, source="email", service=sheets
                 )
 
-                print(f"  ✓ {receipt_data.get('merchant', 'Unknown')} — "
-                      f"{stats['mapped']}/{stats['total_items']} items mapped, "
-                      f"{result['rows_appended']} rows written")
+                logger.info("  %s — %d/%d items mapped, %d rows written",
+                            receipt_data.get('merchant', 'Unknown'),
+                            stats['mapped'], stats['total_items'],
+                            result['rows_appended'])
 
             # Label message as processed
             gmail.users().messages().modify(
@@ -192,10 +202,22 @@ def process_inbox(spreadsheet_id: str = None, max_messages: int = 10):
             processed_count += 1
 
         except Exception as e:
-            print(f"  ✗ Error processing message {msg_id}: {e}")
+            failure_counts[msg_id] = failure_counts.get(msg_id, 0) + 1
+            logger.error("Error processing message %s (attempt %d): %s",
+                         msg_id, failure_counts[msg_id], e, exc_info=True)
+            if failure_counts[msg_id] >= _MAX_FAILURES_PER_MESSAGE:
+                logger.warning("Message %s failed %d times, labeling as Failed",
+                               msg_id, failure_counts[msg_id])
+                try:
+                    gmail.users().messages().modify(
+                        userId="me", id=msg_id,
+                        body={"addLabelIds": [failed_label_id]}
+                    ).execute()
+                except Exception:
+                    logger.error("Could not label message %s as Failed", msg_id)
             continue
 
-    print(f"\nDone! Processed {processed_count}/{len(messages)} messages")
+    logger.info("Done! Processed %d/%d messages", processed_count, len(messages))
     return processed_count
 
 
