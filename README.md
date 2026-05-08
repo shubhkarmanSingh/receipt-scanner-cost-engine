@@ -41,7 +41,7 @@ Configurable for any industry — no code changes needed.
 
 ```bash
 git clone <repo-url>
-cd springroll-receipt-scanner
+cd receipt-scanner-cost-engine
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
@@ -112,7 +112,7 @@ python -m pytest tests/ -v
 ## File Structure
 
 ```
-springroll-receipt-scanner/
+receipt-scanner-cost-engine/
 ├── main.py                    # Cloud Function entry point (HTTP handler)
 ├── receipt_extractor.py       # Claude Vision API — image to structured JSON
 ├── ingredient_mapper.py       # Maps receipt text to canonical item names
