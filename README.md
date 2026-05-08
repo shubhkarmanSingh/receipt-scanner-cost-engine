@@ -1,6 +1,8 @@
-# SpringRoll House Receipt Scanner
+# Receipt Scanner — Small Business Cost Intelligence
 
-AI-powered receipt scanning pipeline for SpringRoll House Deli. Extracts ingredient purchases from receipt photos using Claude Vision, maps them to canonical ingredient names, writes to a Google Sheets database, and auto-updates unit costs per spring roll.
+AI-powered receipt scanning pipeline for small businesses. Extracts purchases from receipt photos using Claude Vision, maps them to canonical item names, writes to a Google Sheets database, and auto-updates product costs and margins.
+
+Configurable for any industry — no code changes needed.
 
 ## Architecture
 
@@ -8,18 +10,17 @@ AI-powered receipt scanning pipeline for SpringRoll House Deli. Extracts ingredi
 ┌─────────────────────┐     ┌──────────────────────┐     ┌─────────────────────┐
 │   INPUT CHANNELS    │     │    PROCESSING        │     │    OUTPUT           │
 │                     │     │                      │     │                     │
-│  📸 Phone photo     │────▶│  Claude Vision API   │────▶│  Google Sheets      │
-│     (text/email)    │     │  (receipt_extractor)  │     │  "Purchases" tab    │
+│  Phone photo        │────>│  Claude Vision API   │────>│  Google Sheets      │
+│  (iOS Shortcut)     │     │  (receipt_extractor)  │     │  "Purchases" tab    │
 │                     │     │                      │     │                     │
-│  📧 Supplier email  │────▶│  Ingredient Mapper   │────▶│  "Latest Prices"    │
-│     (auto-parsed)   │     │  (ingredient_mapper)  │     │  (auto-calculated)  │
+│  Supplier email     │────>│  Item Mapper         │────>│  "Latest Prices"    │
+│  (auto-parsed)      │     │  (ingredient_mapper)  │     │  (auto-calculated)  │
 │                     │     │                      │     │                     │
-│  📄 CSV export      │────▶│  Sheets Client       │────▶│  "Recipe Costs"     │
-│     (Restaurant     │     │  (sheets_client)      │     │  (cost/roll, margin)│
-│      Depot portal)  │     │                      │     │                     │
+│  JSON / curl        │────>│  Sheets Client       │────>│  "Product Costs"    │
+│                     │     │  (sheets_client)      │     │  (cost/unit, margin)│
 └─────────────────────┘     └──────────────────────┘     └─────────────────────┘
                                       │
-                                      ▼
+                                      v
                             ┌──────────────────────┐
                             │  Google Cloud         │
                             │  Function (main.py)   │
@@ -41,25 +42,47 @@ AI-powered receipt scanning pipeline for SpringRoll House Deli. Extracts ingredi
 ```bash
 git clone <repo-url>
 cd springroll-receipt-scanner
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your API keys
 ```
 
-### 2. Set up Google Sheets
+### 2. Configure your business
+
+Run the interactive setup wizard:
+
+```bash
+python setup_wizard.py
+```
+
+This walks you through:
+- Business name and industry
+- Item categories and aliases (what you buy)
+- Products/recipes (what you make)
+- Monthly overhead costs
+- Pricing tiers (how you sell)
+
+Takes about 10-15 minutes. You can also start from an industry template (restaurant, retail, or service).
+
+To add items later:
+```bash
+python setup_wizard.py --add-item
+```
+
+### 3. Set up Google Sheets
 
 **Create the spreadsheet:**
 1. Go to [Google Sheets](https://sheets.google.com) and create a new spreadsheet
-2. Name it "SpringRoll House — Purchases Database"
-3. Copy the spreadsheet ID from the URL (the long string between `/d/` and `/edit`)
-4. Add it to your `.env` as `SPREADSHEET_ID`
+2. Copy the spreadsheet ID from the URL (the long string between `/d/` and `/edit`)
+3. Add it to your `.env` as `SPREADSHEET_ID`
 
 **Create a service account:**
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project (or use existing)
 3. Enable the Google Sheets API
-4. Go to IAM & Admin → Service Accounts → Create Service Account
-5. Download the JSON key file → save as `config/service_account.json`
+4. Go to IAM & Admin > Service Accounts > Create Service Account
+5. Download the JSON key file and save as `config/service_account.json`
 6. Share your Google Sheet with the service account email (as Editor)
 
 **Initialize the spreadsheet:**
@@ -67,27 +90,23 @@ cp .env.example .env
 python sheets_client.py init YOUR_SPREADSHEET_ID
 ```
 
-This creates the tabs: Purchases, Latest Prices, Recipes, Margins, Unmapped Items.
-
-### 3. Test locally with the mock receipt
+### 4. Test locally
 
 ```bash
-# Generate the mock receipt image (if not already present)
-python tests/generate_mock_receipt.py
+# Start the local dev server
+python serve_local.py
 
-# Run the full pipeline (extract + map, no Sheets write)
-export ANTHROPIC_API_KEY=sk-ant-...
-python tests/test_pipeline.py
+# In another terminal, test with a receipt image
+curl -X POST http://localhost:8080/scan --data-binary @receipt.jpg
 
-# Run with Sheets write
-python tests/test_pipeline.py --write YOUR_SPREADSHEET_ID
+# Or test the pipeline directly
+python main.py path/to/receipt.jpg
 ```
 
-### 4. Test with a real receipt
+### 5. Run tests
 
 ```bash
-# Just point it at any receipt photo
-python main.py path/to/receipt.jpg YOUR_SPREADSHEET_ID
+python -m pytest tests/ -v
 ```
 
 ## File Structure
@@ -95,27 +114,44 @@ python main.py path/to/receipt.jpg YOUR_SPREADSHEET_ID
 ```
 springroll-receipt-scanner/
 ├── main.py                    # Cloud Function entry point (HTTP handler)
-├── receipt_extractor.py       # Claude Vision API — image → structured JSON
-├── ingredient_mapper.py       # Maps receipt text → canonical ingredient names
-├── sheets_client.py           # Google Sheets read/write + recipe cost calculator
-├── gmail_watcher.py           # Monitors Gmail inbox for receipt emails (V2)
+├── receipt_extractor.py       # Claude Vision API — image to structured JSON
+├── ingredient_mapper.py       # Maps receipt text to canonical item names
+├── sheets_client.py           # Google Sheets read/write + cost calculator
+├── config_loader.py           # Business config loading and validation
+├── setup_wizard.py            # Interactive business setup CLI
+├── gmail_watcher.py           # Monitors Gmail inbox for receipt emails
+├── serve_local.py             # Local Flask dev server
+├── logger.py                  # Structured logging setup
+├── deploy.sh                  # Google Cloud Functions deployment script
+├── create_shortcut.py         # iOS Shortcut generator
 ├── requirements.txt           # Python dependencies
 ├── .env.example               # Environment variables template
-├── .gitignore
 ├── config/
-│   ├── ingredients.json       # Ingredient aliases, recipes, and pricing
-│   ├── service_account.json   # Google Cloud credentials (DO NOT COMMIT)
-│   └── gmail_credentials.json # Gmail OAuth2 creds (DO NOT COMMIT)
+│   ├── business_config.json   # Your business config (gitignored)
+│   ├── service_account.json   # Google Cloud credentials (gitignored)
+│   └── templates/             # Industry starter templates
+│       ├── restaurant.json
+│       ├── retail.json
+│       └── service.json
 └── tests/
-    ├── generate_mock_receipt.py    # Creates a realistic mock receipt image
-    ├── mock_receipt_restaurant_depot.png  # Generated mock receipt
-    └── test_pipeline.py           # End-to-end pipeline test
+    ├── test_config.py         # Config loader tests
+    ├── test_extractor.py      # Receipt extraction + prompt tests
+    ├── test_mapper.py         # Item mapping tests
+    └── test_security.py       # Security validation tests
 ```
 
 ## Deployment to Google Cloud Functions
 
+Use the included deploy script:
+
 ```bash
-# Deploy the HTTP-triggered function
+./deploy.sh
+# Or specify a project:
+./deploy.sh --project my-gcp-project --region us-west1
+```
+
+Or deploy manually:
+```bash
 gcloud functions deploy scan-receipt \
     --gen2 \
     --runtime python312 \
@@ -124,103 +160,61 @@ gcloud functions deploy scan-receipt \
     --entry-point scan_receipt \
     --region us-west1 \
     --memory 512MB \
-    --timeout 60s \
-    --set-env-vars "ANTHROPIC_API_KEY=sk-ant-...,SPREADSHEET_ID=1abc..."
-
-# Note: You'll also need to upload the service account credentials.
-# Option A: Bundle config/service_account.json with the deployment
-# Option B: Use Google Secret Manager (recommended for production)
-```
-
-**Calling the deployed function:**
-```bash
-# With base64 image
-curl -X POST https://us-west1-YOUR-PROJECT.cloudfunctions.net/scan-receipt \
-    -H "Content-Type: application/json" \
-    -d '{
-        "image_base64": "'$(base64 -i receipt.png)'",
-        "media_type": "image/png",
-        "source": "photo"
-    }'
+    --timeout 120s \
+    --set-env-vars "ANTHROPIC_API_KEY=...,SPREADSHEET_ID=..."
 ```
 
 ## iPhone Setup (iOS Shortcut)
 
-Tony can scan receipts directly from his iPhone home screen — no app install needed. See **[ios_shortcut_guide.md](ios_shortcut_guide.md)** for step-by-step setup.
+Generate a shortcut that lets you scan receipts from your iPhone home screen:
 
-**How it works:** Tap shortcut → take photo → receipt is processed → notification with results.
+```bash
+python create_shortcut.py https://REGION-PROJECT.cloudfunctions.net/scan-receipt
+```
 
-The shortcut sends the photo to the Cloud Function as base64, which runs the full pipeline.
+AirDrop the generated `.shortcut` file to your iPhone. Tap to install.
 
-## How Tony Uses This (End-User Flow)
+**Flow:** Tap shortcut > take photo > receipt is processed > results shown.
 
-1. **Buy ingredients** at Restaurant Depot, Costco, etc.
-2. **Tap "Scan Receipt"** on iPhone home screen (or share a photo from Camera Roll)
-3. **Done!** The pipeline automatically:
-   - Extracts every line item (ingredient, quantity, price)
-   - Maps it to the correct ingredient in the cost model
-   - Writes it to the Purchases Database
-   - Updates the cost-per-roll for every product
-   - Flags any unknown items for manual review
+## How It Works
 
-## Ingredient Mapping
+1. **Scan a receipt** — take a photo, email it, or POST it to the API
+2. **Claude Vision extracts** every line item (item, quantity, price)
+3. **Item mapper** matches receipt text to your configured canonical names
+4. **Sheets client** writes to your Purchases Database
+5. **Cost engine** recomputes product costs using latest prices
+6. **Unmapped items** are logged for review — add new aliases anytime
 
-The system maps raw receipt descriptions (like "GRD PORK 80/20 10LB CS") to canonical names (like "Pork") using pattern matching defined in `config/ingredients.json`.
+## Item Mapping
 
-Currently mapped ingredients:
-- **Proteins:** Pork, Minced Chicken, Shrimp
-- **Produce:** Carrot, Taro, Cabbage, Onion
-- **Seasonings:** Garlic Powder, Salt, Sugar, Black Pepper, Chicken Flavor Bouillon, Mushroom Seasoning
-- **Wrappers:** Large 12in, Small 8in, Wonton Wrappers
-- **Starch:** Vermicelli
-- **Supply:** Soybean Oil
+The system maps raw receipt descriptions (like "GRD PORK 80/20 10LB CS") to canonical names (like "Pork") using pattern matching defined in your business config.
 
-Unmapped items (packaging, cleaning supplies, etc.) are logged to the "Unmapped Items" tab for review. To add new mappings, edit `config/ingredients.json`.
+Unmapped items are logged to the "Unmapped Items" tab for review. Add new mappings via the wizard or by editing `config/business_config.json`.
 
-## Recipe Cost Model
+## Cost Model
 
-Recipes are defined in `config/ingredients.json` under `product_recipes`. Each recipe specifies:
-- Ingredients and quantities per batch
-- Batch size (number of rolls)
-- Wholesale price per roll
+The cost engine is fully configurable:
 
-The system computes a full cost breakdown per roll:
-- **Ingredient cost** = sum of (ingredient qty × latest unit price) ÷ batch size
-- **Labor cost** = monthly labor ($35,700) ÷ monthly production (200,000 rolls)
-- **Overhead cost** = monthly fixed overhead ($6,168) ÷ production
-- **Insurance cost** = monthly insurance ($3,550) ÷ production
-- **Supplies cost** = monthly supplies ($979) ÷ production
-- **Total cost** = sum of all above
-- **Margin** = (sell price − total cost) ÷ sell price
+- **Item costs** = sum of (item qty x latest unit price) / batch size
+- **Overhead costs** = each monthly cost category / monthly production
+- **Total cost** = item costs + all overhead categories
+- **Margins** = computed per pricing tier (wholesale, retail, etc.)
 
-Margins are computed against both frozen wholesale and cooked retail prices.
-
-Products currently modeled:
-| Product | Size | Batch | Wholesale $/roll |
-|---------|------|-------|------------------|
-| Large Vegetable | 1.5"×5" | 1,200 | $0.76 |
-| Small Vegetable | 1"×4" | 1,500 | $0.72 |
-| Large Chicken | 1.5"×5" | 1,200 | $0.76 |
-| Small Chicken | 1"×4" | 1,500 | $0.74 |
-| Large Pork | 1.5"×5" | 1,200 | $0.76 |
-| Small Pork | 1"×4" | 1,500 | $0.74 |
-| Taro | 1"×4" | 1,500 | $0.72 |
-| Shrimp | 1"×4" | 1,500 | $0.88 |
-| Pork & Shrimp | 1"×4" | 1,500 | $0.80 |
+All overhead categories, pricing tiers, and product definitions are driven by your business config.
 
 ## Costs
 
-- **Claude Vision API:** ~$0.01–0.03 per receipt image
+- **Claude Vision API:** ~$0.01-0.03 per receipt image
 - **Google Sheets API:** Free
 - **Google Cloud Functions:** Free tier covers ~2M invocations/month
-- **Estimated monthly cost for 100 receipts:** $1–3
+- **Estimated monthly cost for 100 receipts:** $1-3
 
-## Future Enhancements (V2+)
+## Security
 
-- [ ] Gmail watcher for auto-processing emailed receipts
-- [ ] Restaurant Depot CSV import
-- [x] iOS Shortcut for one-tap receipt capture (see [ios_shortcut_guide.md](ios_shortcut_guide.md))
-- [ ] Price trend alerts (ingredient cost spikes)
-- [ ] Weekly purchase forecast based on sales patterns
-- [ ] QuickBooks export integration
-- [ ] Web dashboard for recipe cost visualization
+- API key authentication (timing-safe comparison)
+- SSRF prevention on image URL downloads
+- Bounded image downloads (10MB cap)
+- Media type allowlist (PNG, JPEG, WEBP, GIF)
+- Safe error messages (no internal details leaked to clients)
+- Request ID tracking for log correlation
+- Business configs and credentials gitignored
