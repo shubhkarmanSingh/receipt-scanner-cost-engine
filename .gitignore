@@ -8,5 +8,13 @@ config/business_config.json
 config/examples/
 __pycache__/
 *.pyc
+*.xlsx
+*.png
+presentation.html
+generate_pipeline_diagram.py
+extract_excel.py
+tests/generate_mock_receipt.py
+tests/test_pipeline.py
+tests/mock_receipt_*
 tests/test_output.json
 .venv/

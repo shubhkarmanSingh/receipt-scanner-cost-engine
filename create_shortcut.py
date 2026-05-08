@@ -1,5 +1,5 @@
 """
-Generate an Apple Shortcuts .shortcut file for the SpringRoll Receipt Scanner.
+Generate an Apple Shortcuts .shortcut file for the Receipt Scanner.
 
 The shortcut takes a photo and POSTs the raw image bytes to the server.
 Works with both Cloud Functions and local dev server.

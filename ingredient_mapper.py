@@ -28,7 +28,7 @@ def map_ingredient(raw_description: str, aliases: dict | None = None) -> dict:
     Map a raw receipt item description to a canonical ingredient name.
 
     Args:
-        raw_description: The text as it appears on the receipt (e.g., "GRD PORK 80/20 10LB CS")
+        raw_description: The text as it appears on the receipt (e.g., "ITEM NAME 10LB CS")
         aliases: The aliases dict from config (loaded automatically if None)
 
     Returns:
@@ -108,34 +108,19 @@ def map_receipt_items(receipt_data: dict, aliases: dict | None = None) -> dict:
 # Local testing
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Quick test with sample descriptions
-    test_descriptions = [
-        "GRD PORK 80/20 10LB CS",
-        "MINCED CHICKEN BREAST",
-        "RAW SHRIMP 16/20 IQF",
-        "RICE PAPER WRAPPER 12IN",
-        "RICE PAPER WRAPPER 8IN",
-        "VERMICELLI RICE NOODLE",
-        "FRESH CARROTS WHOLE 25LB",
-        "TARO ROOT",
-        "GREEN CABBAGE 50LB CS",
-        "YELLOW ONION 50LB BAG",
-        "GARLIC POWDER 5LB",
-        "SALT IODIZED 10LB",
-        "SUGAR GRANULATED 25LB",
-        "BLACK PEPPER GROUND 5LB",
-        "CHICKEN BOUILLON PWD 5LB",
-        "MUSHROOM SEASONING 1LB",
-        "SOYBEAN OIL 35LB CONT",
-        "FOIL TRAY LARGE 50CT",         # Should be UNMAPPED
-        "RANDOM UNKNOWN PRODUCT",        # Should be UNMAPPED
-    ]
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python ingredient_mapper.py <description> [description2 ...]")
+        print("  Tests item mapping against your business config.")
+        print("  Example: python ingredient_mapper.py 'GROUND BEEF 10LB' 'SALT 5LB'")
+        sys.exit(1)
 
     aliases = load_aliases()
-    print(f"{'Receipt Text':<35} {'→':^3} {'Canonical Name':<30} {'Category':<15}")
+    print(f"{'Receipt Text':<35} {'->':^4} {'Canonical Name':<30} {'Category':<15}")
     print("=" * 90)
 
-    for desc in test_descriptions:
+    for desc in sys.argv[1:]:
         result = map_ingredient(desc, aliases)
-        status = "✓" if result["matched_pattern"] else "✗"
-        print(f"{status} {desc:<33} → {result['canonical_name']:<30} {result['category']:<15}")
+        status = "+" if result["matched_pattern"] else "-"
+        print(f"{status} {desc:<33} -> {result['canonical_name']:<30} {result['category']:<15}")

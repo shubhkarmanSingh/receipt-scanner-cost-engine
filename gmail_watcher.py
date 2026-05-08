@@ -10,7 +10,7 @@ This script runs as a secondary Cloud Function (or cron job) that:
 Setup:
   - Requires Gmail API credentials (OAuth2 or service account with domain-wide delegation)
   - Set GMAIL_CREDENTIALS_JSON env var to the credentials file path
-  - Set RECEIPT_EMAIL to the monitored address (e.g., springrollhouse.receipts@gmail.com)
+  - Set RECEIPT_EMAIL to the monitored address (e.g., receipts@yourbusiness.com)
 
 For V1, this can also be triggered manually:
     python gmail_watcher.py
